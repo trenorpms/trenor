@@ -452,7 +452,7 @@ export class SophiaToolsService {
   private async tenantListInvoices(ctx: AgentContext): Promise<ToolResult> {
     this.narrate(ctx, `Checking your billing history...`);
     const invoices = await this.db.sql`
-      SELECT id, amount, status, description, created_at as "createdAt"
+      SELECT id, amount_due as "amount", amount_due as "amountDue", status, description, created_at as "createdAt"
       FROM invoices
       WHERE LOWER(tenant_email) = LOWER(${ctx.tenantEmail || ''})
       ORDER BY created_at DESC
@@ -479,7 +479,7 @@ export class SophiaToolsService {
   private async tenantGetLastPayment(ctx: AgentContext): Promise<ToolResult> {
     this.narrate(ctx, `Checking your payment history...`);
     const rows = await this.db.sql`
-      SELECT amount, description, created_at as "createdAt"
+      SELECT amount_due as "amount", amount_due as "amountDue", description, created_at as "createdAt"
       FROM invoices
       WHERE LOWER(tenant_email) = LOWER(${ctx.tenantEmail || ''}) AND status = 'Paid'
       ORDER BY created_at DESC
@@ -502,7 +502,7 @@ export class SophiaToolsService {
     `;
     const profile = contactRows[0] || {};
     const invoices = await this.db.sql`
-      SELECT id, amount, status, description, created_at as "createdAt"
+      SELECT id, amount_due as "amount", amount_due as "amountDue", status, description, created_at as "createdAt"
       FROM invoices
       WHERE LOWER(tenant_email) = LOWER(${ctx.tenantEmail || ''})
       ORDER BY created_at DESC

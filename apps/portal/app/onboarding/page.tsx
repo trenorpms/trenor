@@ -24,6 +24,7 @@ export default function OnboardingPage() {
   const [isVerifying, setIsVerifying] = useState(false);
   const [selectedBank, setSelectedBank] = useState<string | null>(null);
   const [linkingBank, setLinkingBank] = useState(false);
+  const [verifiedInvite, setVerifiedInvite] = useState<{ propertyName: string; unit: string; totalAmount: number; managerName: string } | null>(null);
 
   // Load and validate user session
   useEffect(() => {
@@ -129,17 +130,33 @@ export default function OnboardingPage() {
   };
 
   // Tenant invite verify
-  const handleVerifyCode = (e: React.FormEvent) => {
+  const handleVerifyCode = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inviteCode.trim()) return;
+    const cleanCode = inviteCode.trim().toUpperCase();
+    if (!cleanCode) return;
 
     setIsVerifying(true);
     addToast('Connecting to lease record...', 'info');
-    setTimeout(() => {
-      setIsVerifying(false);
+    try {
+      const res = await fetch('http://localhost:4000/api/auth/invite/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: cleanCode })
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.message || 'Invalid invite code.');
+      }
+
+      setVerifiedInvite(data);
       setTenantStep('billing_setup');
       addToast('Lease node loaded!', 'success');
-    }, 1500);
+    } catch (err: any) {
+      addToast(err.message || 'Invalid code or connection failed.', 'error');
+    } finally {
+      setIsVerifying(false);
+    }
   };
 
   // Tenant Plaid/Bank link
@@ -155,12 +172,33 @@ export default function OnboardingPage() {
   };
 
   // Tenant finish onboarding
-  const handleFinishTenant = () => {
-    localStorage.setItem('onboarded', 'true');
-    addToast('Resident account configured successfully!', 'success');
-    setTimeout(() => {
-      window.location.href = '/tenant';
-    }, 1500);
+  const handleFinishTenant = async () => {
+    setLoading(true);
+    try {
+      const currentUser = user || JSON.parse(localStorage.getItem('user') || '{}');
+      const cleanCode = inviteCode.trim().toUpperCase();
+      
+      const res = await fetch('http://localhost:4000/api/auth/invite/claim', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: cleanCode, userId: currentUser.id })
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.message || 'Failed to link account to property.');
+      }
+
+      localStorage.setItem('onboarded', 'true');
+      addToast('Resident account configured successfully!', 'success');
+      setTimeout(() => {
+        window.location.href = '/tenant';
+      }, 1500);
+    } catch (err: any) {
+      addToast(err.message || 'Claim failed.', 'error');
+    } finally {
+      setLoading(false);
+    }
   };
 
   if (loading) {
@@ -450,7 +488,7 @@ export default function OnboardingPage() {
                     Connection Successful
                   </h1>
                   <p style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                    Your resident profile is active at 123 Pine St, Unit 4B.
+                    Your resident profile is active at {verifiedInvite?.propertyName || '123 Pine St'}, Unit {verifiedInvite?.unit || '4B'}.
                   </p>
                 </div>
 
@@ -480,7 +518,7 @@ export default function OnboardingPage() {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                     <span style={{ fontSize: '11px', fontWeight: 700, color: '#10b981' }}>Trenor Assistant</span>
                     <p style={{ fontSize: '12px', margin: 0, lineHeight: 1.4, color: 'var(--text-primary)' }}>
-                      "Hi! I am the automated manager for Unit 4B. Your rent is $2,400 due on the 1st of each month. I can help you file maintenance requests and answer household questions anytime."
+                      "Hi! I am the automated manager for Unit {verifiedInvite?.unit || '4B'}. Your rent is ${verifiedInvite?.totalAmount || '2,400'} due on the 1st of each month. I can help you file maintenance requests and answer household questions anytime."
                     </p>
                   </div>
                 </div>
