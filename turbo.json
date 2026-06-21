@@ -1,0 +1,59 @@
+{
+  "$schema": "https://turborepo.dev/schema.json",
+  "ui": "stream",
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "inputs": ["$TURBO_DEFAULT$", ".env*"],
+      "outputs": [".next/**", "!.next/cache/**", "!.next/dev/**", "dist/**"],
+      "passThroughEnv": [
+        "SYSTEMROOT",
+        "TEMP",
+        "TMP",
+        "NODE_ENV",
+        "PATH",
+        "PATHEXT",
+        "COMSPEC",
+        "APPDATA",
+        "LOCALAPPDATA",
+        "HOME",
+        "USERPROFILE"
+      ]
+    },
+    "lint": {
+      "dependsOn": ["^lint"]
+    },
+    "check-types": {
+      "dependsOn": ["^check-types"],
+      "passThroughEnv": [
+        "SYSTEMROOT",
+        "TEMP",
+        "TMP",
+        "PATH",
+        "PATHEXT",
+        "COMSPEC",
+        "APPDATA",
+        "LOCALAPPDATA",
+        "HOME",
+        "USERPROFILE"
+      ]
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true,
+      "passThroughEnv": [
+        "SYSTEMROOT",
+        "TEMP",
+        "TMP",
+        "NODE_ENV",
+        "PATH",
+        "PATHEXT",
+        "COMSPEC",
+        "APPDATA",
+        "LOCALAPPDATA",
+        "HOME",
+        "USERPROFILE"
+      ]
+    }
+  }
+}

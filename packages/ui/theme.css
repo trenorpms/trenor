@@ -1,0 +1,226 @@
+/* 
+  Ink Coral Global Design System
+  Typography: Geist (Headings) + Inter (Body/UI)
+  Palette: Ink Coral (Deep ink, muted panels, warm text, coral accents)
+  Spacing: Compact (4px base)
+  Radius: Crisp (2px - 4px)
+  Motion: Subtle & Restrained
+*/
+
+
+@font-face {
+  font-family: 'Geist';
+  src: url('https://cdn.jsdelivr.net/npm/geist-sans@latest/GeistMono-Variable.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+}
+
+:root {
+  /* Spacing Grid (Compact - 4px base) */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+
+  /* Radius (Crisp) */
+  --radius-xs: 2px;
+  --radius-sm: 3px;
+  --radius-md: 4px;
+  --radius-lg: 6px; /* Used sparingly */
+  
+  /* Transitions (Subtle Motion) */
+  --transition-fast: 120ms cubic-bezier(0.2, 0.8, 0.4, 1);
+  --transition-normal: 200ms cubic-bezier(0.2, 0.8, 0.4, 1);
+  
+  /* Typography */
+  --font-heading: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-body: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+/* --- THEME PALETTES --- */
+
+/* 1. Dark Mode (Default / Ink Base) */
+:root,
+[data-theme="dark"],
+.dark {
+  --bg-primary: #05080b;       /* Deep ink (#05080b) */
+  --bg-secondary: #0a0f14;     /* Muted panel (#0a0f14) */
+  --bg-tertiary: #11161d;      /* Accent panel (#11161d) */
+  
+  --text-primary: #f8f5ef;     /* Warm off-white (#f8f5ef) */
+  --text-secondary: #c5bfb5;   /* Muted warm text (#c5bfb5) */
+  --text-tertiary: #a39c92;    /* Quiet placeholder/border text (#a39c92) */
+  
+  --border-muted: #1a2027;     /* Subtle panel border (#1a2027) */
+  --border-strong: #252d37;    /* Input/Control border (#252d37) */
+  
+  --accent-coral: #ff6b6b;     /* Primary brand coral (#ff6b6b) */
+  --accent-coral-hover: #ff8585;
+  --accent-coral-muted: rgba(255, 107, 107, 0.15);
+  
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.6);
+  --shadow-md: 0 8px 32px rgba(0, 0, 0, 0.5);
+  
+  --grid-color: 255, 255, 255;
+  --grid-opacity: 0.02;
+}
+
+/* 2. Light Mode (Warm Paper Base) */
+[data-theme="light"],
+.light-theme {
+  --bg-primary: #fcfbf9;       /* Warm paper background */
+  --bg-secondary: #f3f0e8;     /* Muted panel */
+  --bg-tertiary: #e7e3d6;      /* Accent panel */
+  
+  --text-primary: #121316;     /* Dark ink text */
+  --text-secondary: #5a5c64;   /* Muted dark text */
+  --text-tertiary: #8e9099;    /* Quiet text */
+  
+  --border-muted: #e7e3d6;     /* Subtle border */
+  --border-strong: #d0cbd7;    /* Focus border */
+  
+  --accent-coral: #e05647;     /* Deeper coral for legibility in light mode */
+  --accent-coral-hover: #f06c5d;
+  --accent-coral-muted: rgba(224, 86, 71, 0.1);
+  
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+  
+  --grid-color: 100, 116, 139;
+  --grid-opacity: 0.07;
+}
+
+/* --- SYSTEM LIGHT/DARK AUTO DETECT --- */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]):not([data-theme="light"]) {
+    --bg-primary: #fcfbf9;
+    --bg-secondary: #f3f0e8;
+    --bg-tertiary: #e7e3d6;
+    --text-primary: #121316;
+    --text-secondary: #5a5c64;
+    --text-tertiary: #8e9099;
+    --border-muted: #e7e3d6;
+    --border-strong: #d0cbd7;
+    --accent-coral: #e05647;
+    --accent-coral-hover: #f06c5d;
+    --accent-coral-muted: rgba(224, 86, 71, 0.1);
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+    --grid-color: 100, 116, 139;
+    --grid-opacity: 0.07;
+  }
+}
+
+/* --- BASE STYLES --- */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  transition: background-color var(--transition-normal), color var(--transition-normal);
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+}
+
+/* --- OPERATIONAL COMPONENT CLASSES (No hardcoded styles) --- */
+
+.panel {
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-muted);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  box-shadow: var(--shadow-sm);
+}
+
+.button-primary {
+  font-family: var(--font-body);
+  font-weight: 500;
+  background-color: var(--accent-coral);
+  color: #ffffff;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-4);
+  cursor: pointer;
+  transition: background-color var(--transition-fast), transform var(--transition-fast);
+}
+
+.button-primary:hover {
+  background-color: var(--accent-coral-hover);
+  transform: translateY(-1px);
+}
+
+.button-primary:active {
+  transform: translateY(0);
+}
+
+.button-secondary {
+  font-family: var(--font-body);
+  font-weight: 500;
+  background-color: transparent;
+  color: var(--text-primary);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-4);
+  cursor: pointer;
+  transition: background-color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.button-secondary:hover {
+  background-color: var(--bg-tertiary);
+  border-color: var(--text-secondary);
+}
+
+.input-text {
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  padding: var(--space-2) var(--space-3);
+  font-family: var(--font-body);
+  font-size: 13px;
+  outline: none;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.input-text:focus {
+  border-color: var(--accent-coral);
+  box-shadow: 0 0 0 2px var(--accent-coral-muted);
+}
+
+/* Subtle Grid Pattern */
+.bg-grid {
+  background-size: 20px 20px;
+  background-image: linear-gradient(to right, rgba(var(--grid-color), var(--grid-opacity)) 1px, transparent 1px),
+                    linear-gradient(to bottom, rgba(var(--grid-color), var(--grid-opacity)) 1px, transparent 1px);
+}
+
+/* Responsive Auth Utilities */
+.hidden-on-mobile {
+  display: block;
+}
+@media (max-width: 768px) {
+  .hidden-on-mobile {
+    display: none !important;
+  }
+  .auth-card-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
