@@ -111,6 +111,52 @@ RULES:
   • Color tags to highlight statuses and items: [coral]Text[/coral] for coral highlight, [green]Text[/green] for success/paid, [blue]Text[/blue] for general info, [gold]Text[/gold] for warning/urgency, [gray]Text[/gray] for secondary info.`;
     }
 
+    // Helper to serialize rich response blocks into text format so the LLM retains all data tables, confirmations, forms, and steps in its history context.
+    const serializeBlockToText = (block: any): string => {
+      if (!block) return '';
+      switch (block.type) {
+        case 'text':
+          return block.content || '';
+        case 'error':
+          return `[System Message: Error: ${block.message}${block.suggestion ? ` - Suggestion: ${block.suggestion}` : ''}]`;
+        case 'data_table': {
+          let text = `[System Message: Data Table: ${block.title || 'Table'}]\n`;
+          if (block.columns && block.rows) {
+            text += `Columns: ${block.columns.map((c: any) => c.label).join(' | ')}\n`;
+            text += block.rows.map((r: any) => block.columns.map((c: any) => `${c.label}: ${r[c.key] !== undefined ? r[c.key] : ''}`).join(', ')).join('\n');
+          }
+          return text;
+        }
+        case 'confirmation': {
+          let text = `[System Message: Confirmation Details for "${block.title || 'Action'}"]\n`;
+          if (block.summary) {
+            text += Object.entries(block.summary).map(([k, v]) => `- ${k}: ${v}`).join('\n');
+          }
+          return text;
+        }
+        case 'form': {
+          let text = `[System Message: Form input request "${block.submitLabel || 'Submit'}"]\n`;
+          if (block.fields) {
+            text += block.fields.map((f: any) => `- Field: ${f.label} (${f.fieldType})${f.required ? ' (Required)' : ''}`).join('\n');
+          }
+          return text;
+        }
+        case 'step_guide': {
+          let text = `[System Message: Progress Steps]\n`;
+          if (block.steps) {
+            text += block.steps.map((s: any) => `- Step: ${s.title} (Status: ${s.status})`).join('\n');
+          }
+          return text;
+        }
+        case 'file_upload':
+          return `[System Message: Requested file upload: "${block.label || 'File'}"]`;
+        case 'image_upload':
+          return `[System Message: Requested image upload: "${block.label || 'Image'}"]`;
+        default:
+          return '';
+      }
+    };
+
     // Build conversation history for Gemini
     const contents: any[] = [];
     if (chatHistory && chatHistory.length > 0) {
@@ -120,7 +166,13 @@ RULES:
             contents.push({ role: 'user', parts: [{ text: msg.content }] });
           }
         } else if (msg.role === 'agent') {
-          const textContent = msg.content || msg.blocks?.filter((b: any) => b.type === 'text').map((b: any) => b.content).join('\n') || '';
+          let textContent = msg.content || '';
+          if (msg.blocks && msg.blocks.length > 0) {
+            const blockTexts = msg.blocks.map(serializeBlockToText).filter(Boolean);
+            if (blockTexts.length > 0) {
+              textContent = (textContent ? textContent + '\n' : '') + blockTexts.join('\n\n');
+            }
+          }
           if (textContent) {
             contents.push({ role: 'model', parts: [{ text: textContent }] });
           }
