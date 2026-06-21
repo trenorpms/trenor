@@ -23,7 +23,9 @@ export class SophiaToolsService {
 
   // ─── STATUS NARRATOR ───
   private narrate(ctx: AgentContext, msg: string) {
-    this.realtime.sendNotification(ctx.landlordId, 'landlord', {
+    const targetId = ctx.role === 'tenant' ? ctx.tenantEmail || '' : ctx.landlordId;
+    const targetRole = ctx.role === 'tenant' ? 'tenant' : 'landlord';
+    this.realtime.sendNotification(targetId, targetRole, {
       id: `sophia-${Date.now()}`,
       title: 'Sophia',
       message: msg,
@@ -47,7 +49,14 @@ export class SophiaToolsService {
         case 'list_invoices': result = await this.listInvoices(args.status, ctx); break;
         case 'create_invoice': result = await this.createInvoice(args, ctx); break;
         case 'reconcile_invoice': result = await this.reconcileInvoice(args, ctx); break;
-        case 'list_tickets': result = await this.listTickets(args.status, ctx); break;
+        case 'tenant_create_maintenance_request': result = await this.tenantCreateMaintenanceRequest(args, ctx); break;
+        case 'tenant_get_arrears': result = await this.tenantGetArrears(ctx); break;
+        case 'tenant_list_invoices': result = await this.tenantListInvoices(ctx); break;
+        case 'tenant_get_maintenance_status': result = await this.tenantGetMaintenanceStatus(args, ctx); break;
+        case 'tenant_get_last_payment': result = await this.tenantGetLastPayment(ctx); break;
+        case 'tenant_get_summary': result = await this.tenantGetSummary(ctx); break;
+        case 'create_maintenance_request': result = await this.createMaintenanceRequest(args, ctx); break;
+        case 'list_tickets': result = await this.listTickets(args.status, args.showHistory, ctx); break;
         case 'list_contractors': result = await this.listContractors(ctx); break;
         case 'assign_contractor': result = await this.assignContractor(args, ctx); break;
         case 'smart_assign_contractor': result = await this.smartAssignContractor(args.ticketId, ctx); break;
@@ -182,10 +191,33 @@ export class SophiaToolsService {
 
   // ─── MAINTENANCE ───
 
-  private async listTickets(status: string | undefined, ctx: AgentContext): Promise<ToolResult> {
+  private async createMaintenanceRequest(args: any, ctx: AgentContext): Promise<ToolResult> {
+    this.narrate(ctx, `Opening maintenance request for ${args.tenantEmail}...`);
+    const ticket = await this.tickets.create({
+      description: args.description,
+      urgency: args.urgency,
+      tenantId: args.tenantEmail,
+    });
+    return {
+      success: true,
+      data: ticket,
+      log: `Created maintenance request ${ticket.id} for ${args.tenantEmail}`,
+    };
+  }
+
+  private async listTickets(status: string | undefined, showHistory: boolean | undefined, ctx: AgentContext): Promise<ToolResult> {
     this.narrate(ctx, 'Loading maintenance tickets...');
     const all = await this.tickets.findAll();
-    const filtered = (!status || status === 'all') ? all : all.filter((t: any) => t.status === status);
+    
+    let filtered = all;
+    if (status && status !== 'all') {
+      filtered = all.filter((t: any) => t.status === status);
+    } else if (showHistory === true || status === 'all') {
+      filtered = all;
+    } else {
+      // Default: exclude completed and rejected
+      filtered = all.filter((t: any) => t.status !== 'completed' && t.status !== 'rejected');
+    }
     return { success: true, data: filtered, log: `Found ${filtered.length} tickets` };
   }
 
@@ -227,7 +259,7 @@ export class SophiaToolsService {
         body: JSON.stringify({
           model: 'deepseek-chat',
           messages: [
-            { role: 'system', content: `Pick the best contractor for this job. Return JSON: { "contractorId": number, "reason": string, "suggestedAmount": number }` },
+            { role: 'system', content: `Pick the best contractor for this job. You MUST prioritize the contractor with the lowest hourly rate if multiple contractors matching the required specialty are available. Return JSON: { "contractorId": number, "reason": string, "suggestedAmount": number }` },
             { role: 'user', content: `Ticket: "${ticket.description}" (urgency: ${ticket.urgency})\nContractors:\n${available.map((c: any) => `ID:${c.id} Name:${c.name} Specialty:${c.specialty} Rate:${c.hourlyRate || 100}/hr`).join('\n')}` },
           ],
           response_format: { type: 'json_object' },
@@ -381,6 +413,112 @@ export class SophiaToolsService {
       success: true,
       data: { key: args.key, value: args.value },
       log: `Saved memory/preference: "${args.key}" = "${args.value}"`
+    };
+  }
+
+  // ─── TENANT ASSISTANT HANDLERS ───
+
+  private async tenantCreateMaintenanceRequest(args: any, ctx: AgentContext): Promise<ToolResult> {
+    this.narrate(ctx, `Opening maintenance request...`);
+    const ticket = await this.tickets.create({
+      description: args.description,
+      urgency: args.urgency,
+      tenantId: ctx.tenantEmail || '',
+    });
+    return {
+      success: true,
+      data: ticket,
+      log: `Created maintenance request ${ticket.id} with description: "${args.description}"`,
+    };
+  }
+
+  private async tenantGetArrears(ctx: AgentContext): Promise<ToolResult> {
+    this.narrate(ctx, `Checking your balance due...`);
+    const rows = await this.db.sql`
+      SELECT arrears, rent
+      FROM tenant_contacts
+      WHERE email = ${ctx.tenantEmail || ''}
+      LIMIT 1
+    `;
+    const arrears = rows[0]?.arrears !== undefined ? Number(rows[0].arrears) : 0;
+    const rent = rows[0]?.rent !== undefined ? Number(rows[0].rent) : 0;
+    return {
+      success: true,
+      data: { arrears, rent },
+      log: `Arrears/Outstanding balance is €${arrears.toLocaleString()} and monthly rent is €${rent.toLocaleString()}`,
+    };
+  }
+
+  private async tenantListInvoices(ctx: AgentContext): Promise<ToolResult> {
+    this.narrate(ctx, `Checking your billing history...`);
+    const invoices = await this.db.sql`
+      SELECT id, amount, status, description, created_at as "createdAt"
+      FROM invoices
+      WHERE LOWER(tenant_email) = LOWER(${ctx.tenantEmail || ''})
+      ORDER BY created_at DESC
+    `;
+    return {
+      success: true,
+      data: invoices,
+      log: `Found ${invoices.length} invoices in billing history`,
+    };
+  }
+
+  private async tenantGetMaintenanceStatus(args: { showHistory?: boolean } | undefined, ctx: AgentContext): Promise<ToolResult> {
+    this.narrate(ctx, `Checking your maintenance requests...`);
+    const tickets = await this.tickets.findAllByTenant(ctx.tenantEmail || '');
+    const showHistory = args?.showHistory === true;
+    const filtered = showHistory ? tickets : tickets.filter((t: any) => t.status !== 'completed' && t.status !== 'rejected');
+    return {
+      success: true,
+      data: filtered,
+      log: `Found ${filtered.length} maintenance tickets`,
+    };
+  }
+
+  private async tenantGetLastPayment(ctx: AgentContext): Promise<ToolResult> {
+    this.narrate(ctx, `Checking your payment history...`);
+    const rows = await this.db.sql`
+      SELECT amount, description, created_at as "createdAt"
+      FROM invoices
+      WHERE LOWER(tenant_email) = LOWER(${ctx.tenantEmail || ''}) AND status = 'Paid'
+      ORDER BY created_at DESC
+      LIMIT 1
+    `;
+    return {
+      success: true,
+      data: rows[0] || null,
+      log: rows[0] ? `Last payment of €${Number(rows[0].amount).toLocaleString()} for "${rows[0].description}" on ${new Date(rows[0].createdAt).toLocaleDateString()}` : 'No payment records found',
+    };
+  }
+
+  private async tenantGetSummary(ctx: AgentContext): Promise<ToolResult> {
+    this.narrate(ctx, `Generating overall summary...`);
+    const contactRows = await this.db.sql`
+      SELECT property_name as "propertyName", unit, arrears, rent
+      FROM tenant_contacts
+      WHERE email = ${ctx.tenantEmail || ''}
+      LIMIT 1
+    `;
+    const profile = contactRows[0] || {};
+    const invoices = await this.db.sql`
+      SELECT id, amount, status, description, created_at as "createdAt"
+      FROM invoices
+      WHERE LOWER(tenant_email) = LOWER(${ctx.tenantEmail || ''})
+      ORDER BY created_at DESC
+    `;
+    const tickets = await this.tickets.findAllByTenant(ctx.tenantEmail || '');
+    
+    return {
+      success: true,
+      data: {
+        profile,
+        invoicesCount: invoices.length,
+        unpaidInvoices: invoices.filter((i: any) => i.status !== 'Paid'),
+        ticketsCount: tickets.length,
+        activeTickets: tickets.filter((t: any) => t.status !== 'completed' && t.status !== 'rejected'),
+      },
+      log: `Successfully summarized billing and maintenance records.`,
     };
   }
 

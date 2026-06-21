@@ -1,6 +1,10 @@
 const { neon } = require('@neondatabase/serverless');
 
-const connectionString = 'postgresql://neondb_owner:npg_AKGCf5S9eNrx@ep-quiet-cherry-aidpplme-pooler.c-4.us-east-1.aws.neon.tech/neondb?sslmode=require';
+const connectionString = process.env.DATABASE_URL || '';
+if (!connectionString) {
+  console.error('DATABASE_URL environment variable is missing!');
+  process.exit(1);
+}
 const sql = neon(connectionString);
 
 async function runMigrations() {

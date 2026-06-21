@@ -64,7 +64,7 @@ export default function NotificationCenter({ notifications, connected, onClear }
               left: 0,
               right: 0,
               bottom: 0,
-              zIndex: 999
+              zIndex: 99999
             }}
           />
 
@@ -78,7 +78,7 @@ export default function NotificationCenter({ notifications, connected, onClear }
             borderRadius: '2px',
             boxShadow: '0 8px 32px rgba(0, 0, 0, 0.5)',
             backdropFilter: 'blur(16px)',
-            zIndex: 1000,
+            zIndex: 100000,
             display: 'flex',
             flexDirection: 'column',
             maxHeight: '360px'

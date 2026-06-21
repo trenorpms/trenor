@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { AgentToolsService } from './agent-tools.service';
 import { PropertiesService } from '../properties/properties.service';
 import { SophiaOrchestratorService } from './sophia-orchestrator.service';
+import { DatabaseService } from '../database.service';
 import {
   AgentContext,
   AgentResponseBlock,
@@ -16,6 +17,7 @@ export class AgentService {
     private readonly tools: AgentToolsService,
     private readonly properties: PropertiesService,
     private readonly sophia: SophiaOrchestratorService,
+    private readonly db: DatabaseService,
   ) {}
 
   // ─── BUILD AGENT CONTEXT ───
@@ -513,5 +515,50 @@ ${additionalContext || ''}`;
     }
 
     return { blocks, conversationState: state };
+  }
+
+  // ─── TENANT AGENT ORCHESTRATION ───
+
+  async buildTenantContext(tenantId: string): Promise<AgentContext> {
+    const userRows = await this.db.sql`
+      SELECT name, email
+      FROM users
+      WHERE id = ${parseInt(tenantId) || 0} OR CAST(id AS VARCHAR) = ${tenantId}
+      LIMIT 1
+    `;
+    const email = userRows[0]?.email || '';
+    const name = userRows[0]?.name || 'Tenant';
+
+    const contactRows = await this.db.sql`
+      SELECT property_name, unit, arrears, landlord_id
+      FROM tenant_contacts
+      WHERE email = ${email}
+      LIMIT 1
+    `;
+    const landlordId = contactRows[0]?.landlord_id || 'system';
+
+    return {
+      landlordId,
+      landlordName: '',
+      landlordEmail: '',
+      tier: 'free',
+      propertiesCount: 1,
+      tenantsCount: 1,
+      role: 'tenant',
+      tenantId,
+      tenantName: name,
+      tenantEmail: email,
+    };
+  }
+
+  async runTenant(
+    action: string,
+    tenantId: string,
+    message?: string,
+    conversationState?: ConversationState,
+    chatHistory?: any[],
+  ): Promise<AgentRunResponse> {
+    const context = await this.buildTenantContext(tenantId);
+    return this.sophia.run(message || '', context, conversationState || { step: 'idle', history: [] }, chatHistory);
   }
 }

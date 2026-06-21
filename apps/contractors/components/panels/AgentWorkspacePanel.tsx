@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
+import { useRealtime } from '../../app/hooks/useRealtime';
 
 // ─── Types (mirroring backend) ───
 interface TextBlock { type: 'text'; content: string; }
@@ -129,6 +130,13 @@ export default function AgentWorkspacePanel({ user: propUser }: AgentWorkspacePa
   const [showHistory, setShowHistory] = useState(false);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [currentStatus, setCurrentStatus] = useState<string>('');
+
+  useRealtime(user, useCallback((notif: any) => {
+    if (notif.title === 'Sophia') {
+      setCurrentStatus(notif.message);
+    }
+  }, []));
   
   // Settings Panel State
   const [showSettings, setShowSettings] = useState(false);
@@ -333,6 +341,7 @@ export default function AgentWorkspacePanel({ user: propUser }: AgentWorkspacePa
   // ─── SEND TO BACKEND ───
   const sendToAgent = useCallback(async (action: string, extra?: { message?: string; file?: File; formData?: Record<string, string>; currentHistory?: AgentMessage[] }) => {
     setLoading(true);
+    setCurrentStatus('');
 
     const currentHistory = extra?.currentHistory || messages;
 
@@ -370,6 +379,7 @@ export default function AgentWorkspacePanel({ user: propUser }: AgentWorkspacePa
       updateCurrentSession(newMsgs);
     } finally {
       setLoading(false);
+      setCurrentStatus('');
     }
   }, [conversationState, user, messages, settings]);
 
@@ -781,7 +791,7 @@ export default function AgentWorkspacePanel({ user: propUser }: AgentWorkspacePa
         )}
 
         {/* Message Log */}
-        {messages.map((msg, i) => (
+        {messages.map((msg: AgentMessage, i: number) => (
           <div key={i} className="flex flex-col gap-1.5 animate-slide-up">
             <div className="flex items-center gap-2 mb-0.5">
               {msg.role === 'user' ? (
@@ -801,7 +811,7 @@ export default function AgentWorkspacePanel({ user: propUser }: AgentWorkspacePa
 
             <div className="pl-7">
               {msg.content && <p className="text-sm text-[var(--text-primary)] m-0 leading-relaxed whitespace-pre-wrap">{msg.content}</p>}
-              {msg.blocks?.map((block, bi) => renderBlock(block, bi))}
+              {msg.blocks?.map((block: AgentResponseBlock, bi: number) => renderBlock(block, bi))}
             </div>
           </div>
         ))}
@@ -809,7 +819,9 @@ export default function AgentWorkspacePanel({ user: propUser }: AgentWorkspacePa
         {loading && (
           <div className="flex items-center gap-2 pl-7 py-2">
             <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent-coral)] animate-ping" />
-            <span className="text-[10px] text-[var(--text-tertiary)] font-mono">Sophia is running tools...</span>
+            <span className="text-[10px] text-[var(--text-tertiary)] font-mono">
+              {currentStatus || 'Sophia is writing...'}
+            </span>
           </div>
         )}
       </div>

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
+import { useRealtime } from '../../hooks/useRealtime';
 
 // ─── Types (mirroring backend) ───
 interface TextBlock { type: 'text'; content: string; }
@@ -199,6 +200,13 @@ export default function AgentWorkspace({ addToast, router, user }: AgentWorkspac
   const [showHistory, setShowHistory] = useState(false);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [currentStatus, setCurrentStatus] = useState<string>('');
+
+  useRealtime(user, useCallback((notif: any) => {
+    if (notif.title === 'Sophia') {
+      setCurrentStatus(notif.message);
+    }
+  }, []));
 
   // Settings Panel State
   const [showSettings, setShowSettings] = useState(false);
@@ -381,6 +389,7 @@ export default function AgentWorkspace({ addToast, router, user }: AgentWorkspac
   // ─── SEND TO BACKEND ───
   const sendToAgent = useCallback(async (action: string, extra?: { message?: string; file?: File; formData?: Record<string, string>; currentHistory?: AgentMessage[] }) => {
     setLoading(true);
+    setCurrentStatus('');
 
     const currentHistory = extra?.currentHistory || messages;
 
@@ -419,6 +428,7 @@ export default function AgentWorkspace({ addToast, router, user }: AgentWorkspac
       updateCurrentSession(newMsgs, conversationState);
     } finally {
       setLoading(false);
+      setCurrentStatus('');
     }
   }, [conversationState, user, messages, settings, sessions, activeSessionId]);
 
@@ -630,7 +640,7 @@ export default function AgentWorkspace({ addToast, router, user }: AgentWorkspac
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <span className="pulse-dot" style={{ width: '6px', height: '6px', backgroundColor: loading ? 'var(--accent-coral)' : '#10b981', borderRadius: '50%' }} />
           <span style={{ fontSize: '11px', fontFamily: 'var(--font-mono)', color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-            {loading ? 'System processing...' : 'Agent link synchronized'}
+            {loading ? 'Sophia is writing...' : 'Connected'}
           </span>
         </div>
         
@@ -915,8 +925,8 @@ export default function AgentWorkspace({ addToast, router, user }: AgentWorkspac
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent-coral)" strokeWidth="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
             </div>
             <div>
-              <h2 style={{ fontSize: '20px', fontWeight: 500, color: 'var(--text-primary)', margin: '0 0 6px 0', letterSpacing: '-0.3px' }}>AI Operation Terminal</h2>
-              <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', margin: 0 }}>Ask me to list a property, generate invoices, or check recent activity.</p>
+              <h2 style={{ fontSize: '20px', fontWeight: 500, color: 'var(--text-primary)', margin: '0 0 6px 0', letterSpacing: '-0.3px' }}>Sophia AI Workspace</h2>
+              <p style={{ fontSize: '12px', color: 'var(--text-tertiary)', margin: 0 }}>I can help you list properties, generate invoices, verify tenants, or check recent actions.</p>
             </div>
 
             {/* Quick action cards */}
@@ -999,7 +1009,9 @@ export default function AgentWorkspace({ addToast, router, user }: AgentWorkspac
         {loading && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: '30px', padding: '8px 0' }}>
             <div style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: 'var(--accent-coral)', animation: 'pulse 1s ease infinite' }} />
-            <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>Processing request...</span>
+            <span style={{ fontSize: '11px', color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>
+              {currentStatus || 'Sophia is writing...'}
+            </span>
           </div>
         )}
       </div>

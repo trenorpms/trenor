@@ -40,6 +40,17 @@ export default function TenantsPanel() {
 
   useEffect(() => {
     fetchInitialData();
+
+    const handleSearchEvent = () => {
+      const q = localStorage.getItem('tenants_search');
+      if (q !== null) {
+        setSearchQuery(q);
+        localStorage.removeItem('tenants_search');
+      }
+    };
+    handleSearchEvent();
+    window.addEventListener('tenants_search_changed', handleSearchEvent);
+    return () => window.removeEventListener('tenants_search_changed', handleSearchEvent);
   }, []);
 
   const fetchInitialData = () => {

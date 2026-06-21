@@ -36,12 +36,12 @@ export default function Topbar({ onToggleCommandPalette }: TopbarProps) {
   };
 
   return (
-    <header className="h-16 flex items-center justify-between px-6 border-b border-[var(--border-muted)] bg-[var(--bg-secondary)] sticky top-0 z-10 flex-shrink-0">
+    <header className="h-16 flex items-center justify-between px-6 border-b border-[var(--border-muted)] bg-[var(--bg-secondary)] sticky top-0 z-50 flex-shrink-0">
       
       {/* Breadcrumbs */}
       <div className="flex items-center gap-3">
         <div className="flex items-center gap-2 font-mono text-[10px] text-[var(--text-tertiary)] uppercase tracking-widest select-none">
-          <span>landlord OS</span>
+          <span>manager OS</span>
           <svg className="w-3 h-3 text-[var(--text-tertiary)]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <polyline points="9 18 15 12 9 6"></polyline>
           </svg>
@@ -55,7 +55,7 @@ export default function Topbar({ onToggleCommandPalette }: TopbarProps) {
           whileHover={{ scale: 1.02 }}
           whileTap={{ scale: 0.98 }}
           onClick={onToggleCommandPalette} 
-          className="flex items-center justify-between bg-[var(--bg-primary)] border border-[var(--border-muted)] hover:border-[var(--accent-coral)] rounded px-3 py-1.5 w-64 text-[var(--text-tertiary)] transition-all group cursor-pointer"
+          className="flex items-center justify-between bg-[var(--bg-primary)] border border-[var(--border-strong)] hover:border-[var(--accent-coral)] rounded px-3 py-1.5 w-64 text-[var(--text-tertiary)] transition-all group cursor-pointer"
         >
           <div className="flex items-center gap-2">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="group-hover:text-[var(--accent-coral)] transition-colors">
@@ -114,7 +114,7 @@ export default function Topbar({ onToggleCommandPalette }: TopbarProps) {
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: 8, scale: 0.95 }}
                 transition={{ duration: 0.15, ease: 'easeOut' }}
-                className="absolute right-0 mt-3 w-80 bg-[var(--bg-secondary)] border border-[var(--border-strong)] rounded shadow-2xl z-50 p-3 flex flex-col gap-2"
+                className="absolute right-0 mt-3 w-80 bg-[var(--bg-secondary)] border border-[var(--border-strong)] rounded shadow-2xl z-[110] p-3 flex flex-col gap-2"
               >
                 <div className="flex justify-between items-center border-b border-[var(--border-muted)] pb-2 mb-1">
                   <span className="text-[9px] font-mono text-[var(--text-tertiary)] uppercase font-bold tracking-wider">Alert Feed</span>
@@ -153,19 +153,10 @@ export default function Topbar({ onToggleCommandPalette }: TopbarProps) {
             </div>
             <div className="flex flex-col hidden sm:flex">
               <span className="text-xs font-semibold text-[var(--text-primary)] leading-tight">{user.name}</span>
-              <span className="text-[9px] text-[var(--text-tertiary)] uppercase tracking-wider font-mono mt-0.5">{user.role}</span>
+              <span className="text-[9px] text-[var(--text-tertiary)] uppercase tracking-wider font-mono mt-0.5">{user.role === 'landlord' ? 'manager' : user.role}</span>
             </div>
           </div>
         )}
-
-        <motion.button 
-          whileHover={{ scale: 1.02, borderColor: 'var(--accent-coral)' }}
-          whileTap={{ scale: 0.98 }}
-          onClick={handleDisconnect} 
-          className="border border-[var(--border-strong)] bg-transparent text-[var(--accent-coral)] px-3 py-1.5 text-xs rounded transition-colors cursor-pointer"
-        >
-          Disconnect
-        </motion.button>
       </div>
 
     </header>

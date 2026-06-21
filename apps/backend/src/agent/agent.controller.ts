@@ -76,6 +76,42 @@ export class AgentController {
     return result;
   }
 
+  @Post('run-tenant')
+  async runTenant(
+    @Body() body: any,
+    @Headers('authorization') authHeader: string,
+  ) {
+    const tenantId = authHeader?.replace('Bearer ', '')?.trim();
+    if (!tenantId) {
+      return { blocks: [{ type: 'error', message: 'Not authenticated.' }], conversationState: {} };
+    }
+
+    let action = body.action || 'chat';
+    let message = body.message;
+    let conversationState: any;
+    let chatHistory: any[] | undefined;
+
+    try {
+      if (typeof body.conversationState === 'string') conversationState = JSON.parse(body.conversationState);
+      else conversationState = body.conversationState;
+    } catch { conversationState = undefined; }
+
+    try {
+      if (typeof body.chatHistory === 'string') chatHistory = JSON.parse(body.chatHistory);
+      else chatHistory = body.chatHistory;
+    } catch { chatHistory = undefined; }
+
+    const result = await this.agentService.runTenant(
+      action,
+      tenantId,
+      message,
+      conversationState,
+      chatHistory,
+    );
+
+    return result;
+  }
+
   @Get('tools')
   async getTools(@Headers('authorization') authHeader: string) {
     const landlordId = authHeader?.replace('Bearer ', '')?.trim();

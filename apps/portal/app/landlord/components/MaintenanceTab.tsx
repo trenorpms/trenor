@@ -14,6 +14,7 @@ interface Ticket {
   contractorId?: number;
   amount?: number;
   contractorAccepted?: boolean;
+  rejectReason?: string;
 }
 
 interface Contractor {
@@ -42,15 +43,17 @@ export default function MaintenanceTab({ addToast }: MaintenanceTabProps) {
   const [hireAmount, setHireAmount] = useState<string>('');
   const [submittingHire, setSubmittingHire] = useState(false);
 
+  const [showHistory, setShowHistory] = useState(false);
+
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [showHistory]);
 
   const fetchData = async () => {
     setLoading(true);
     try {
       const [ticketsRes, contractorsRes] = await Promise.all([
-        fetch('http://localhost:4000/api/tickets'),
+        fetch(`http://localhost:4000/api/tickets?showHistory=${showHistory}`),
         fetch('http://localhost:4000/api/tickets/contractors')
       ]);
 
@@ -67,6 +70,28 @@ export default function MaintenanceTab({ addToast }: MaintenanceTabProps) {
       addToast('Failed to sync maintenance data.', 'error');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleRejectTicket = async (ticketId: string) => {
+    const reason = prompt('Please enter the reason for rejecting this maintenance request:');
+    if (!reason || !reason.trim()) {
+      return;
+    }
+    
+    try {
+      const res = await fetch(`http://localhost:4000/api/tickets/${ticketId}/reject`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: reason.trim() })
+      });
+      
+      if (!res.ok) throw new Error('Rejection failed');
+      
+      addToast('Maintenance request rejected successfully.', 'info');
+      fetchData();
+    } catch (err) {
+      addToast('Failed to reject maintenance request.', 'error');
     }
   };
 
@@ -145,9 +170,20 @@ export default function MaintenanceTab({ addToast }: MaintenanceTabProps) {
         
         {/* Ticket list */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          <div style={{ borderBottom: '1px solid var(--border-muted)', paddingBottom: '8px' }}>
-            <h3 style={{ fontSize: '14px', fontWeight: 600, margin: 0 }}>Incident Queue</h3>
-            <p style={{ fontSize: '11px', color: 'var(--text-tertiary)', margin: '2px 0 0 0' }}>Assign tickets to contractors and set proposed payouts.</p>
+          <div style={{ borderBottom: '1px solid var(--border-muted)', paddingBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+            <div>
+              <h3 style={{ fontSize: '14px', fontWeight: 600, margin: 0 }}>Incident Queue</h3>
+              <p style={{ fontSize: '11px', color: 'var(--text-tertiary)', margin: '2px 0 0 0' }}>Assign tickets to contractors and set proposed payouts.</p>
+            </div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', cursor: 'pointer', color: 'var(--text-secondary)', userSelect: 'none' }}>
+              <input
+                type="checkbox"
+                checked={showHistory}
+                onChange={(e) => setShowHistory(e.target.checked)}
+                style={{ cursor: 'pointer' }}
+              />
+              Show History
+            </label>
           </div>
 
           {tickets.length === 0 ? (
@@ -184,6 +220,11 @@ export default function MaintenanceTab({ addToast }: MaintenanceTabProps) {
                     <div style={{ fontSize: '11px', color: 'var(--text-tertiary)', marginTop: '4px' }}>
                       Resident: {t.tenantId} • Property: {t.propertyName || 'N/A'} • Unit: {t.unitNumber || 'N/A'}
                     </div>
+                    {t.status === 'rejected' && t.rejectReason && (
+                      <div style={{ fontSize: '11px', color: '#ff6b6b', marginTop: '8px', backgroundColor: 'rgba(239,68,68,0.05)', padding: '6px 10px', borderRadius: '2px', borderLeft: '3px solid #ff6b6b' }}>
+                        <strong>Rejection Reason:</strong> {t.rejectReason}
+                      </div>
+                    )}
                   </div>
 
                   <span style={{
@@ -197,16 +238,24 @@ export default function MaintenanceTab({ addToast }: MaintenanceTabProps) {
                 {/* Dispatch Details / Actions */}
                 <div style={{ borderTop: '1px solid rgba(255,255,255,0.03)', paddingTop: '10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
                   {t.status === 'open' && hiringTicketId !== t.id && (
-                    <button
-                      onClick={() => {
-                        setHiringTicketId(t.id);
-                        setSelectedContractorId('');
-                        setHireAmount('');
-                      }}
-                      style={{ padding: '6px 14px', backgroundColor: 'var(--accent-coral)', border: 'none', borderRadius: '2px', color: 'var(--bg-primary)', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer' }}
-                    >
-                      HIRE CONTRACTOR
-                    </button>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button
+                        onClick={() => {
+                          setHiringTicketId(t.id);
+                          setSelectedContractorId('');
+                          setHireAmount('');
+                        }}
+                        style={{ padding: '6px 14px', backgroundColor: 'var(--accent-coral)', border: 'none', borderRadius: '2px', color: 'var(--bg-primary)', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer' }}
+                      >
+                        HIRE CONTRACTOR
+                      </button>
+                      <button
+                        onClick={() => handleRejectTicket(t.id)}
+                        style={{ padding: '6px 14px', backgroundColor: 'transparent', border: '1px solid var(--border-muted)', borderRadius: '2px', color: '#ff6b6b', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer' }}
+                      >
+                        REJECT REQUEST
+                      </button>
+                    </div>
                   )}
 
                   {hiringTicketId === t.id && (

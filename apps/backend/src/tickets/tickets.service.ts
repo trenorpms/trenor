@@ -6,7 +6,7 @@ export class Ticket {
   id!: string;
   description!: string;
   urgency!: 'low' | 'medium' | 'high';
-  status!: 'open' | 'assigned' | 'completed' | 'on_hold';
+  status!: 'open' | 'assigned' | 'completed' | 'on_hold' | 'rejected';
   propertyId?: string;
   tenantId!: string;
   contractorId?: string;
@@ -29,7 +29,7 @@ export class TicketsService {
 
   async findAllByProperty(propertyId: string): Promise<Ticket[]> {
     return this.db.sql`
-      SELECT id, description, urgency, status, tenant_email as "tenantId", property_name as "propertyName", unit_number as "unitNumber", created_at as "createdAt", contractor_id as "contractorId", amount, contractor_accepted as "contractorAccepted", photo_url as "photoUrl", location_name as "locationName", rating, rating_comment as "ratingComment"
+      SELECT id, description, urgency, status, tenant_email as "tenantId", property_name as "propertyName", unit_number as "unitNumber", created_at as "createdAt", contractor_id as "contractorId", amount, contractor_accepted as "contractorAccepted", photo_url as "photoUrl", location_name as "locationName", rating, rating_comment as "ratingComment", reject_reason as "rejectReason"
       FROM tickets
       WHERE property_name = (SELECT name FROM properties WHERE id = ${propertyId} LIMIT 1)
       ORDER BY created_at DESC
@@ -39,7 +39,7 @@ export class TicketsService {
   async findAllByTenant(tenantIdOrEmail: string): Promise<Ticket[]> {
     const email = await this.getTenantEmail(tenantIdOrEmail);
     return this.db.sql`
-      SELECT id, description, urgency, status, tenant_email as "tenantId", property_name as "propertyName", unit_number as "unitNumber", created_at as "createdAt", contractor_id as "contractorId", amount, contractor_accepted as "contractorAccepted", photo_url as "photoUrl", location_name as "locationName", rating, rating_comment as "ratingComment"
+      SELECT id, description, urgency, status, tenant_email as "tenantId", property_name as "propertyName", unit_number as "unitNumber", created_at as "createdAt", contractor_id as "contractorId", amount, contractor_accepted as "contractorAccepted", photo_url as "photoUrl", location_name as "locationName", rating, rating_comment as "ratingComment", reject_reason as "rejectReason"
       FROM tickets
       WHERE tenant_email = ${email}
       ORDER BY created_at DESC
@@ -159,9 +159,24 @@ export class TicketsService {
     return ticket;
   }
 
+  async declineHireOffer(id: string): Promise<Ticket | undefined> {
+    const rows = await this.db.sql`
+      UPDATE tickets
+      SET 
+        contractor_accepted = FALSE,
+        contractor_id = NULL,
+        amount = NULL,
+        status = 'open',
+        reject_reason = 'Contractor declined dispatch offer. Looking for a new contractor.'
+      WHERE id = ${id}
+      RETURNING id, description, urgency, status, tenant_email as "tenantId", created_at as "createdAt", contractor_id as "contractorId", amount, contractor_accepted as "contractorAccepted", photo_url as "photoUrl", location_name as "locationName", reject_reason as "rejectReason"
+    `;
+    return rows[0];
+  }
+
   async findAll(): Promise<Ticket[]> {
     return this.db.sql`
-      SELECT id, description, urgency, status, tenant_email as "tenantId", property_name as "propertyName", unit_number as "unitNumber", created_at as "createdAt", contractor_id as "contractorId", amount, contractor_accepted as "contractorAccepted", photo_url as "photoUrl", location_name as "locationName"
+      SELECT id, description, urgency, status, tenant_email as "tenantId", property_name as "propertyName", unit_number as "unitNumber", created_at as "createdAt", contractor_id as "contractorId", amount, contractor_accepted as "contractorAccepted", photo_url as "photoUrl", location_name as "locationName", rating, rating_comment as "ratingComment", reject_reason as "rejectReason"
       FROM tickets
       ORDER BY created_at DESC
     `;
@@ -169,7 +184,7 @@ export class TicketsService {
 
   async findAllByContractor(contractorId: number): Promise<Ticket[]> {
     return this.db.sql`
-      SELECT id, description, urgency, status, tenant_email as "tenantId", property_name as "propertyName", unit_number as "unitNumber", created_at as "createdAt", contractor_id as "contractorId", amount, contractor_accepted as "contractorAccepted", photo_url as "photoUrl", location_name as "locationName"
+      SELECT id, description, urgency, status, tenant_email as "tenantId", property_name as "propertyName", unit_number as "unitNumber", created_at as "createdAt", contractor_id as "contractorId", amount, contractor_accepted as "contractorAccepted", photo_url as "photoUrl", location_name as "locationName", rating, rating_comment as "ratingComment", reject_reason as "rejectReason"
       FROM tickets
       WHERE contractor_id = ${contractorId}
       ORDER BY created_at DESC
@@ -227,7 +242,7 @@ export class TicketsService {
       UPDATE tickets
       SET status = ${status}
       WHERE id = ${id}
-      RETURNING id, description, urgency, status, tenant_email as "tenantId", created_at as "createdAt", contractor_id as "contractorId", amount, contractor_accepted as "contractorAccepted", photo_url as "photoUrl", location_name as "locationName", rating, rating_comment as "ratingComment"
+      RETURNING id, description, urgency, status, tenant_email as "tenantId", created_at as "createdAt", contractor_id as "contractorId", amount, contractor_accepted as "contractorAccepted", photo_url as "photoUrl", location_name as "locationName", rating, rating_comment as "ratingComment", reject_reason as "rejectReason"
     `;
     const ticket = rows[0];
     if (ticket && ticket.tenantId) {
@@ -239,6 +254,28 @@ export class TicketsService {
         });
       } catch (err) {
         console.error('Failed to send status update notification:', err);
+      }
+    }
+    return ticket;
+  }
+
+  async rejectTicket(id: string, reason: string): Promise<Ticket | undefined> {
+    const rows = await this.db.sql`
+      UPDATE tickets
+      SET status = 'rejected', reject_reason = ${reason}
+      WHERE id = ${id}
+      RETURNING id, description, urgency, status, tenant_email as "tenantId", created_at as "createdAt", contractor_id as "contractorId", amount, contractor_accepted as "contractorAccepted", photo_url as "photoUrl", location_name as "locationName", rating, rating_comment as "ratingComment", reject_reason as "rejectReason"
+    `;
+    const ticket = rows[0];
+    if (ticket && ticket.tenantId) {
+      try {
+        this.realtime.sendNotification(ticket.tenantId, 'tenant', {
+          title: 'Support Ticket Rejected',
+          message: `Your request "${ticket.description.substring(0, 30)}..." has been rejected. Reason: ${reason}`,
+          type: 'error'
+        });
+      } catch (err) {
+        console.error('Failed to send rejection notification:', err);
       }
     }
     return ticket;

@@ -450,7 +450,7 @@ export default function Sidebar() {
               transition={{ duration: 0.2 }}
               className="flex flex-col"
             >
-              <span className="font-heading font-extrabold text-sm tracking-tight text-[var(--text-primary)] leading-none">landlord</span>
+              <span className="font-heading font-extrabold text-sm tracking-tight text-[var(--text-primary)] leading-none">manager</span>
               <span className="font-mono text-[8px] text-[var(--text-tertiary)] tracking-widest mt-1.5 uppercase font-bold">Operative Core</span>
             </motion.div>
           )}

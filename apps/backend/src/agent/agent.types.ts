@@ -128,6 +128,10 @@ export interface AgentContext {
   tier: 'free' | 'pro' | 'partner';
   propertiesCount: number;
   tenantsCount: number;
+  role?: 'tenant' | 'landlord';
+  tenantId?: string;
+  tenantName?: string;
+  tenantEmail?: string;
 }
 
 // ─── Tool Result ───

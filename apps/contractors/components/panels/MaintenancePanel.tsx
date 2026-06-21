@@ -85,6 +85,17 @@ export default function MaintenancePanel() {
 
   useEffect(() => {
     fetchData();
+
+    const handleSearchEvent = () => {
+      const q = localStorage.getItem('maintenance_search');
+      if (q !== null) {
+        setSearchQuery(q);
+        localStorage.removeItem('maintenance_search');
+      }
+    };
+    handleSearchEvent();
+    window.addEventListener('maintenance_search_changed', handleSearchEvent);
+    return () => window.removeEventListener('maintenance_search_changed', handleSearchEvent);
   }, []);
 
   const getHeaders = (): Record<string, string> => {

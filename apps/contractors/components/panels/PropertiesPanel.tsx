@@ -85,6 +85,17 @@ export default function PropertiesPanel() {
 
   useEffect(() => {
     fetchInitialData();
+
+    const handleSearchEvent = () => {
+      const q = localStorage.getItem('properties_search');
+      if (q !== null) {
+        setSearchQuery(q);
+        localStorage.removeItem('properties_search');
+      }
+    };
+    handleSearchEvent();
+    window.addEventListener('properties_search_changed', handleSearchEvent);
+    return () => window.removeEventListener('properties_search_changed', handleSearchEvent);
   }, []);
 
   useEffect(() => {

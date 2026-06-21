@@ -339,6 +339,19 @@ export default function ContractorDashboard() {
     }
   };
 
+  const handleDeclineOffer = async (ticketId: string) => {
+    try {
+      const res = await fetch(`http://localhost:4000/api/tickets/${ticketId}/decline-offer`, {
+        method: 'POST'
+      });
+      if (!res.ok) throw new Error('Decline failure');
+      showToast('Job offer declined.', 'info');
+      if (user) loadData(user.email);
+    } catch (err) {
+      showToast('Failed to decline assignment offer.', 'error');
+    }
+  };
+
   const handleResolveTicket = async (ticketId: string) => {
     try {
       const res = await fetch(`http://localhost:4000/api/tickets/${ticketId}/complete`, {
@@ -764,12 +777,20 @@ export default function ContractorDashboard() {
                             <span className="text-base font-mono font-bold text-warm-50">€{t.amount?.toLocaleString()}</span>
                           </div>
 
-                          <button
-                            onClick={() => handleAcceptOffer(t.id)}
-                            className="px-4 py-2 bg-coral-500 text-ink-950 font-semibold text-xs rounded hover:bg-coral-600 transition-colors cursor-pointer shadow-glow-coral"
-                          >
-                            Accept Offer
-                          </button>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => handleAcceptOffer(t.id)}
+                              className="px-4 py-2 bg-coral-500 text-ink-950 font-semibold text-xs rounded hover:bg-coral-600 transition-colors cursor-pointer shadow-glow-coral"
+                            >
+                              Accept Offer
+                            </button>
+                            <button
+                              onClick={() => handleDeclineOffer(t.id)}
+                              className="px-4 py-2 border border-ink-700 hover:border-red-500/50 hover:text-red-400 text-warm-200 text-xs rounded transition-colors cursor-pointer"
+                            >
+                              Decline
+                            </button>
+                          </div>
                         </div>
                       </div>
                     ))}

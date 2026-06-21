@@ -3,7 +3,11 @@ import * as dotenv from 'dotenv';
 
 dotenv.config();
 
-const connectionString = process.env.DATABASE_URL || 'postgresql://neondb_owner:npg_AKGCf5S9eNrx@ep-quiet-cherry-aidpplme-pooler.c-4.us-east-1.aws.neon.tech/neondb?sslmode=require';
+const connectionString = process.env.DATABASE_URL || '';
+if (!connectionString) {
+  console.error('DATABASE_URL is not set in environment variables!');
+  process.exit(1);
+}
 
 // Ensure over port 443
 let dbUrl = connectionString;
@@ -23,6 +27,11 @@ async function main() {
     await client.query(`
       ALTER TABLE agent_activity_log ADD COLUMN IF NOT EXISTS duration_ms INTEGER;
       ALTER TABLE agent_activity_log ADD COLUMN IF NOT EXISTS model_used VARCHAR(50);
+    `);
+
+    console.log('Altering tickets table...');
+    await client.query(`
+      ALTER TABLE tickets ADD COLUMN IF NOT EXISTS reject_reason TEXT;
     `);
 
     console.log('Creating agent_tool_config...');

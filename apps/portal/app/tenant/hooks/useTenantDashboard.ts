@@ -57,6 +57,7 @@ export function useTenantDashboard() {
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<any>(null);
   const [theme, setTheme] = useState<'light' | 'dark'>('dark');
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   // DB States
   const [profile, setProfile] = useState<TenantProfile | null>(null);
@@ -234,7 +235,7 @@ export function useTenantDashboard() {
       localStorage.removeItem('user');
       window.location.href = '/login';
     }
-  }, []);
+  }, [refreshTrigger]);
 
   // Invite Code Preview Effect
   useEffect(() => {
@@ -433,6 +434,7 @@ export function useTenantDashboard() {
   const historyTicketsList = tickets.filter((t) => t.status === 'completed' || t.status === 'rejected');
 
   return {
+    user,
     toasts,
     addToast,
     removeToast,
@@ -496,5 +498,6 @@ export function useTenantDashboard() {
     outstandingTotal,
     activeTicketsList,
     historyTicketsList,
+    refresh: () => setRefreshTrigger((prev) => prev + 1),
   };
 }

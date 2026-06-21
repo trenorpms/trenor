@@ -13,6 +13,7 @@ import Modals from '../components/Modals';
 import OnboardingModal from '../components/OnboardingModal';
 import TenantLoadingSkeleton from '../components/TenantLoadingSkeleton';
 import { useTenantDashboard, Invoice } from '../hooks/useTenantDashboard';
+import TenantAgentWorkspace from '../components/TenantAgentWorkspace';
 
 export default function TenantPortalTabbed() {
   const router = useRouter();
@@ -82,6 +83,8 @@ export default function TenantPortalTabbed() {
     historyTicketsList,
     tickets,
     contractors,
+    user,
+    refresh,
   } = useTenantDashboard();
 
   return (
@@ -259,6 +262,17 @@ export default function TenantPortalTabbed() {
           previewError={previewError}
           previewData={previewData}
           onLogout={handleLogout}
+        />
+      )}
+
+      {profile && (
+        <TenantAgentWorkspace
+          user={user}
+          profile={profile}
+          addToast={addToast}
+          onRefreshData={refresh}
+          theme={theme}
+          onPayInvoice={handlePayInvoice}
         />
       )}
     </div>

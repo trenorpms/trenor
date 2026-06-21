@@ -11,9 +11,16 @@ export class TicketsController {
   }
 
   @Get('tenant')
-  async getTenantTickets(@Headers('Authorization') authHeader?: string): Promise<Ticket[]> {
+  async getTenantTickets(
+    @Query('showHistory') showHistory?: string,
+    @Headers('Authorization') authHeader?: string
+  ): Promise<Ticket[]> {
     const tenantId = this.getUserId(authHeader);
-    return this.ticketsService.findAllByTenant(tenantId);
+    const tickets = await this.ticketsService.findAllByTenant(tenantId);
+    if (showHistory === 'true') {
+      return tickets;
+    }
+    return tickets.filter(t => t.status !== 'completed' && t.status !== 'rejected');
   }
 
   @Post()
@@ -41,8 +48,12 @@ export class TicketsController {
   }
 
   @Get()
-  async getAllTickets(): Promise<Ticket[]> {
-    return this.ticketsService.findAll();
+  async getAllTickets(@Query('showHistory') showHistory?: string): Promise<Ticket[]> {
+    const tickets = await this.ticketsService.findAll();
+    if (showHistory === 'true') {
+      return tickets;
+    }
+    return tickets.filter(t => t.status !== 'completed' && t.status !== 'rejected');
   }
 
   @Post(':id/complete')
@@ -58,6 +69,16 @@ export class TicketsController {
   @Post(':id/hold')
   async holdTicket(@Param('id') id: string): Promise<Ticket> {
     const updated = await this.ticketsService.updateStatus(id, 'on_hold');
+    if (!updated) throw new UnauthorizedException('Ticket not found');
+    return updated;
+  }
+
+  @Post(':id/reject')
+  async rejectTicket(
+    @Param('id') id: string,
+    @Body() body: { reason: string }
+  ): Promise<Ticket> {
+    const updated = await this.ticketsService.rejectTicket(id, body.reason);
     if (!updated) throw new UnauthorizedException('Ticket not found');
     return updated;
   }
@@ -107,6 +128,13 @@ export class TicketsController {
   @Post(':id/accept-offer')
   async acceptOffer(@Param('id') id: string): Promise<Ticket> {
     const updated = await this.ticketsService.acceptHireOffer(id);
+    if (!updated) throw new UnauthorizedException('Ticket not found');
+    return updated;
+  }
+
+  @Post(':id/decline-offer')
+  async declineOffer(@Param('id') id: string): Promise<Ticket> {
+    const updated = await this.ticketsService.declineHireOffer(id);
     if (!updated) throw new UnauthorizedException('Ticket not found');
     return updated;
   }

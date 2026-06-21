@@ -152,10 +152,23 @@ export const TOOL_REGISTRY: ToolDefinition[] = [
 
   // ── Maintenance ──
   {
-    name: 'list_tickets',
-    description: 'List all maintenance tickets/requests with urgency, status, assigned contractor, and tenant info.',
+    name: 'create_maintenance_request',
+    description: 'Create/open a new maintenance ticket/request for a tenant with a description of the issue and urgency level.',
     parameters: [
-      { name: 'status', type: 'string', description: 'Filter by status', enum: ['open', 'assigned', 'completed', 'all'] },
+      { name: 'tenantEmail', type: 'string', description: 'The email address of the tenant reporting the issue', required: true },
+      { name: 'description', type: 'string', description: 'A detailed description of the maintenance problem', required: true },
+      { name: 'urgency', type: 'string', description: 'The urgency level of the request', enum: ['low', 'medium', 'high'], required: true },
+    ],
+    category: 'maintenance',
+    requiresConfirmation: true,
+    enabled: true,
+  },
+  {
+    name: 'list_tickets',
+    description: 'List all maintenance tickets/requests with urgency, status, assigned contractor, and tenant info. By default, it excludes completed and rejected tickets unless the user explicitly requests full history.',
+    parameters: [
+      { name: 'status', type: 'string', description: 'Filter by status', enum: ['open', 'assigned', 'completed', 'rejected', 'all'] },
+      { name: 'showHistory', type: 'boolean', description: 'Set to true to include completed and rejected tickets in the results.' },
     ],
     category: 'maintenance',
     requiresConfirmation: false,
@@ -263,6 +276,60 @@ export const TOOL_REGISTRY: ToolDefinition[] = [
       { name: 'value', type: 'string', description: 'The content or value to store for this memory', required: true },
     ],
     category: 'system',
+    requiresConfirmation: false,
+    enabled: true,
+  },
+  // ── Tenant-Specific Tools ──
+  {
+    name: 'tenant_create_maintenance_request',
+    description: 'Submit a new maintenance ticket/request for your own unit. Use this when the tenant reports an issue.',
+    parameters: [
+      { name: 'description', type: 'string', description: 'A detailed description of the maintenance problem', required: true },
+      { name: 'urgency', type: 'string', description: 'The urgency level of the request', enum: ['low', 'medium', 'high'], required: true },
+    ],
+    category: 'maintenance',
+    requiresConfirmation: true,
+    enabled: true,
+  },
+  {
+    name: 'tenant_get_arrears',
+    description: 'Check how much money you currently owe / outstanding due amount.',
+    parameters: [],
+    category: 'finance',
+    requiresConfirmation: false,
+    enabled: true,
+  },
+  {
+    name: 'tenant_list_invoices',
+    description: 'List all your invoices (both paid and unpaid/outstanding).',
+    parameters: [],
+    category: 'finance',
+    requiresConfirmation: false,
+    enabled: true,
+  },
+  {
+    name: 'tenant_get_maintenance_status',
+    description: 'Check the status of your maintenance requests/tickets. By default, it excludes completed and rejected tickets unless you explicitly request full history.',
+    parameters: [
+      { name: 'showHistory', type: 'boolean', description: 'Set to true to include completed and rejected tickets in the results.' },
+    ],
+    category: 'maintenance',
+    requiresConfirmation: false,
+    enabled: true,
+  },
+  {
+    name: 'tenant_get_last_payment',
+    description: 'Find when you last paid for something and the details of that paid invoice.',
+    parameters: [],
+    category: 'finance',
+    requiresConfirmation: false,
+    enabled: true,
+  },
+  {
+    name: 'tenant_get_summary',
+    description: 'Get a complete summary of your tenancy including arrears, invoices, maintenance request status, and recent activity.',
+    parameters: [],
+    category: 'analytics',
     requiresConfirmation: false,
     enabled: true,
   },
