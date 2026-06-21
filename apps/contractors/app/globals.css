@@ -462,3 +462,23 @@ html, body {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--accent-coral) !important;
 }
+
+/* Auth Layout Panel overrides to guarantee responsive rendering */
+.auth-left-panel {
+  display: none !important;
+  width: 100% !important;
+}
+.auth-right-panel {
+  display: flex !important;
+  width: 100% !important;
+}
+
+@media (min-width: 768px) {
+  .auth-left-panel {
+    display: flex !important;
+    width: 41.666667% !important;
+  }
+  .auth-right-panel {
+    width: 58.333333% !important;
+  }
+}

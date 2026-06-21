@@ -363,7 +363,7 @@ export default function LoginPage() {
         </div>
 
         {/* VALUE PROPOSITION PANEL (LEFT SIDE) */}
-        <div className="w-full md:w-5/12 border-b md:border-b-0 md:border-r border-[var(--border-muted)] flex flex-col relative overflow-hidden hidden md:flex shrink-0">
+        <div className="auth-left-panel border-b md:border-b-0 md:border-r border-[var(--border-muted)] flex-col relative overflow-hidden shrink-0">
           <img src="https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&w=800&q=80" alt="Modern Architecture" className="absolute inset-0 w-full h-full object-cover z-0" />
           <div className="absolute inset-0 bg-[#05080b]/50 mix-blend-multiply z-0"></div>
           <div className="absolute inset-0 bg-gradient-to-t from-[#05080b] via-[#05080b]/80 to-transparent z-0"></div>
@@ -399,7 +399,7 @@ export default function LoginPage() {
         </div>
 
         {/* FORM PANEL (RIGHT SIDE) */}
-        <div className="w-full md:w-7/12 flex flex-col justify-center p-6 md:p-8 lg:p-14 relative overflow-y-auto bg-[var(--bg-secondary)]">
+        <div className="auth-right-panel flex-col justify-center p-6 md:p-8 lg:p-14 relative overflow-y-auto bg-[var(--bg-secondary)]">
           <div className="md:hidden flex items-center gap-2 mb-8">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className="text-[var(--accent-coral)]">
               <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
