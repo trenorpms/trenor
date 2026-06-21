@@ -160,20 +160,51 @@ RULES:
         });
 
         const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${geminiKey}`;
-        const response = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            system_instruction: { parts: [{ text: systemPrompt }] },
-            contents: normalizedContents,
-            tools: [{ function_declarations: functionDeclarations }],
-            tool_config: { function_calling_config: { mode: 'AUTO' } },
-          }),
-        });
+        let response;
+        let attempt = 0;
+        const maxAttempts = 3;
+        let delay = 2000;
 
-        if (!response.ok) {
-          const errText = await response.text();
-          blocks.push({ type: 'error', message: `AI service error (${response.status})`, suggestion: errText.substring(0, 200) });
+        while (attempt < maxAttempts) {
+          attempt++;
+          try {
+            response = await fetch(url, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                system_instruction: { parts: [{ text: systemPrompt }] },
+                contents: normalizedContents,
+                tools: [{ function_declarations: functionDeclarations }],
+                tool_config: { function_calling_config: { mode: 'AUTO' } },
+              }),
+            });
+
+            if (response.ok) {
+              break;
+            }
+
+            const isTransient = response.status === 429 || response.status === 503;
+            if (isTransient && attempt < maxAttempts) {
+              console.warn(`Gemini API returned ${response.status}. Retrying in ${delay}ms (attempt ${attempt}/${maxAttempts})...`);
+              await new Promise(resolve => setTimeout(resolve, delay));
+              delay *= 2;
+            } else {
+              break;
+            }
+          } catch (err: any) {
+            if (attempt < maxAttempts) {
+              console.warn(`Network error calling Gemini API: ${err.message}. Retrying in ${delay}ms...`);
+              await new Promise(resolve => setTimeout(resolve, delay));
+              delay *= 2;
+            } else {
+              throw err;
+            }
+          }
+        }
+
+        if (!response || !response.ok) {
+          const errText = response ? await response.text() : 'Network connection failed';
+          blocks.push({ type: 'error', message: `AI service error (${response?.status || 'network'})`, suggestion: errText.substring(0, 200) });
           break;
         }
 
