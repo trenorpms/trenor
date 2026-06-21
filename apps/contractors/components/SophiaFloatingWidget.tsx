@@ -164,7 +164,8 @@ export default function SophiaFloatingWidget() {
           }
         }
       }
-    } catch (e) {
+    } catch (e: any) {
+      console.error("SophiaFloatingWidget stream parsing error:", e);
       saveHistory([...newMsgs, {
         role: 'agent',
         blocks: [{ type: 'error', message: 'Failed to run Sophia. Check backend link.' }],

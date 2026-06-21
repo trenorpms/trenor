@@ -402,6 +402,7 @@ export default function AgentWorkspacePanel({ user: propUser }: AgentWorkspacePa
         }
       }
     } catch (err: any) {
+      console.error("AgentWorkspacePanel sendToAgent stream parsing error:", err);
       const newMsgs: AgentMessage[] = [...currentHistory, {
         role: 'agent',
         blocks: [{ type: 'error', message: 'Connection error. Make sure the backend is running.' }],

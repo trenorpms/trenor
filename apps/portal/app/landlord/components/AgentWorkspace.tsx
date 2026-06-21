@@ -451,6 +451,7 @@ export default function AgentWorkspace({ addToast, router, user }: AgentWorkspac
         }
       }
     } catch (err: any) {
+      console.error("sendToAgent stream parsing error:", err);
       const newMsgs: AgentMessage[] = [...currentHistory, {
         role: 'agent',
         blocks: [{ type: 'error', message: 'Connection error. Make sure the backend is running.' }],

@@ -269,7 +269,8 @@ export default function TenantAgentWorkspace({
       if (onRefreshData) {
         onRefreshData();
       }
-    } catch {
+    } catch (err: any) {
+      console.error("runTenant stream parsing error:", err);
       const finalMsgs: AgentMessage[] = [...updatedMsgs, {
         role: 'agent',
         blocks: [{ type: 'error', message: 'Connection error. Make sure the backend is running.' }],
