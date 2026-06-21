@@ -39,6 +39,20 @@ export class AgentController {
 
     res.setHeader('Content-Type', 'application/x-ndjson');
     res.setHeader('Transfer-Encoding', 'chunked');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('X-Accel-Buffering', 'no');
+
+    // Track connection state — avoid writing to dead sockets
+    let connectionAlive = true;
+    res.on('close', () => { connectionAlive = false; });
+
+    const safeWrite = (data: any) => {
+      if (!connectionAlive) return;
+      try { res.write(JSON.stringify(data) + '\n'); } catch {}
+    };
+
+    // Immediate heartbeat so the connection stays alive during retries
+    safeWrite({ status: 'thinking' });
 
     // Parse body fields — may come as stringified JSON from FormData
     let action = body.action || 'chat';
@@ -68,7 +82,7 @@ export class AgentController {
     const context = await this.agentService.buildContext(landlordId, landlordName, landlordEmail);
 
     const onChunk = (data: { blocks: any[]; conversationState: any }) => {
-      res.write(JSON.stringify(data) + '\n');
+      safeWrite(data);
     };
 
     try {
@@ -85,11 +99,11 @@ export class AgentController {
         chatHistory,
         onChunk,
       );
-      res.write(JSON.stringify(result) + '\n');
-      res.end();
+      safeWrite(result);
     } catch (err: any) {
-      res.write(JSON.stringify({ blocks: [{ type: 'error', message: `Execution failed: ${err.message}` }], conversationState: {} }) + '\n');
-      res.end();
+      safeWrite({ blocks: [{ type: 'error', message: `Execution failed: ${err.message}` }], conversationState: {} });
+    } finally {
+      if (connectionAlive) try { res.end(); } catch {}
     }
   }
 
@@ -107,6 +121,20 @@ export class AgentController {
 
     res.setHeader('Content-Type', 'application/x-ndjson');
     res.setHeader('Transfer-Encoding', 'chunked');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('X-Accel-Buffering', 'no');
+
+    // Track connection state
+    let connectionAlive = true;
+    res.on('close', () => { connectionAlive = false; });
+
+    const safeWrite = (data: any) => {
+      if (!connectionAlive) return;
+      try { res.write(JSON.stringify(data) + '\n'); } catch {}
+    };
+
+    // Immediate heartbeat
+    safeWrite({ status: 'thinking' });
 
     let action = body.action || 'chat';
     let message = body.message;
@@ -124,7 +152,7 @@ export class AgentController {
     } catch { chatHistory = undefined; }
 
     const onChunk = (data: { blocks: any[]; conversationState: any }) => {
-      res.write(JSON.stringify(data) + '\n');
+      safeWrite(data);
     };
 
     try {
@@ -136,11 +164,11 @@ export class AgentController {
         chatHistory,
         onChunk,
       );
-      res.write(JSON.stringify(result) + '\n');
-      res.end();
+      safeWrite(result);
     } catch (err: any) {
-      res.write(JSON.stringify({ blocks: [{ type: 'error', message: `Execution failed: ${err.message}` }], conversationState: {} }) + '\n');
-      res.end();
+      safeWrite({ blocks: [{ type: 'error', message: `Execution failed: ${err.message}` }], conversationState: {} });
+    } finally {
+      if (connectionAlive) try { res.end(); } catch {}
     }
   }
 

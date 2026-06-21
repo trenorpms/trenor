@@ -243,6 +243,7 @@ RULES:
             const isTransient = response.status === 429 || response.status === 503;
             if (isTransient && attempt < maxAttempts) {
               console.warn(`Gemini API returned ${response.status}. Retrying in ${delay}ms (attempt ${attempt}/${maxAttempts})...`);
+              onChunk?.({ blocks: [], conversationState: state, status: 'retrying' } as any);
               await new Promise(resolve => setTimeout(resolve, delay));
               delay *= 2;
             } else {
@@ -251,6 +252,7 @@ RULES:
           } catch (err: any) {
             if (attempt < maxAttempts) {
               console.warn(`Network error calling Gemini API: ${err.message}. Retrying in ${delay}ms...`);
+              onChunk?.({ blocks: [], conversationState: state, status: 'retrying' } as any);
               await new Promise(resolve => setTimeout(resolve, delay));
               delay *= 2;
             } else {
@@ -262,6 +264,7 @@ RULES:
         if (!response || !response.ok) {
           if (process.env.DEEPSEEK_API_KEY) {
             console.warn('Gemini failed. Failing over to DeepSeek backup mode...');
+            onChunk?.({ blocks: [], conversationState: state, status: 'switching' } as any);
             const fallbackBlocks = await this.runDeepSeekFallback(message, context, chatHistory, enabledTools, onChunk);
             blocks.push(...fallbackBlocks);
             triggerChunk();
