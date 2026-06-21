@@ -29,13 +29,18 @@ export class SophiaOrchestratorService {
     context: AgentContext,
     conversationState?: ConversationState,
     chatHistory?: any[],
+    onChunk?: (data: { blocks: AgentResponseBlock[]; conversationState: ConversationState }) => void,
   ): Promise<AgentRunResponse> {
     const state: ConversationState = conversationState || { step: 'idle', history: [] };
     const blocks: AgentResponseBlock[] = [];
+    const triggerChunk = () => {
+      onChunk?.({ blocks, conversationState: state });
+    };
     const geminiKey = process.env.GEMINI_API_KEY;
 
     if (!geminiKey) {
       blocks.push({ type: 'error', message: 'Gemini API key not configured.', suggestion: 'Add GEMINI_API_KEY to your backend .env' });
+      triggerChunk();
       return { blocks, conversationState: state };
     }
 
@@ -257,12 +262,14 @@ RULES:
         if (!response || !response.ok) {
           if (process.env.DEEPSEEK_API_KEY) {
             console.warn('Gemini failed. Failing over to DeepSeek backup mode...');
-            const fallbackBlocks = await this.runDeepSeekFallback(message, context, chatHistory, enabledTools);
+            const fallbackBlocks = await this.runDeepSeekFallback(message, context, chatHistory, enabledTools, onChunk);
             blocks.push(...fallbackBlocks);
+            triggerChunk();
             break;
           }
           const errText = response ? await response.text() : 'Network connection failed';
           blocks.push({ type: 'error', message: `AI service error (${response?.status || 'network'})`, suggestion: errText.substring(0, 200) });
+          triggerChunk();
           break;
         }
 
@@ -271,11 +278,13 @@ RULES:
         if (!candidate) {
           if (process.env.DEEPSEEK_API_KEY) {
             console.warn('Gemini empty candidates. Failing over to DeepSeek backup mode...');
-            const fallbackBlocks = await this.runDeepSeekFallback(message, context, chatHistory, enabledTools);
+            const fallbackBlocks = await this.runDeepSeekFallback(message, context, chatHistory, enabledTools, onChunk);
             blocks.push(...fallbackBlocks);
+            triggerChunk();
             break;
           }
           blocks.push({ type: 'error', message: 'No response from AI.', suggestion: 'Try rephrasing your request.' });
+          triggerChunk();
           break;
         }
 
@@ -289,6 +298,7 @@ RULES:
           const textPart = parts.find((p: any) => p.text);
           if (textPart && textPart.text?.trim()) {
             blocks.push({ type: 'text', content: textPart.text });
+            triggerChunk();
           }
 
           const fn = functionCallPart.functionCall;
@@ -325,6 +335,7 @@ RULES:
         const textPart = parts.find((p: any) => p.text);
         if (textPart) {
           blocks.push({ type: 'text', content: textPart.text });
+          triggerChunk();
         }
 
         // If we called tools, add inline tool cards
@@ -345,6 +356,7 @@ RULES:
             rows: toolSummaryRows,
             editable: false,
           });
+          triggerChunk();
         }
 
         break; // Done
@@ -355,6 +367,7 @@ RULES:
         for (const tr of toolResults) {
           blocks.push({ type: 'text', content: `• **${tr.tool}**: ${tr.result.log}` });
         }
+        triggerChunk();
       }
 
     } catch (err: any) {
@@ -362,13 +375,16 @@ RULES:
       if (process.env.DEEPSEEK_API_KEY) {
         console.warn('Sophia loop threw error. Failing over to DeepSeek backup mode...');
         try {
-          const fallbackBlocks = await this.runDeepSeekFallback(message, context, chatHistory, enabledTools);
+          const fallbackBlocks = await this.runDeepSeekFallback(message, context, chatHistory, enabledTools, onChunk);
           blocks.push(...fallbackBlocks);
+          triggerChunk();
         } catch (fbErr) {
           blocks.push({ type: 'error', message: `Something went wrong: ${err.message}`, suggestion: 'Try again or rephrase your request.' });
+          triggerChunk();
         }
       } else {
         blocks.push({ type: 'error', message: `Something went wrong: ${err.message}`, suggestion: 'Try again or rephrase your request.' });
+        triggerChunk();
       }
     }
 
@@ -381,17 +397,23 @@ RULES:
     context: AgentContext,
     chatHistory?: any[],
     enabledTools: ToolDefinition[] = [],
+    onChunk?: (data: { blocks: AgentResponseBlock[]; conversationState: ConversationState }) => void,
   ): Promise<AgentResponseBlock[]> {
     const deepseekKey = process.env.DEEPSEEK_API_KEY;
     if (!deepseekKey) {
-      return [{
+      const errBlock: AgentResponseBlock = {
         type: 'error',
         message: 'Primary AI service is currently unavailable.',
         suggestion: 'No backup credentials configured. Please try again later.'
-      }];
+      };
+      onChunk?.({ blocks: [errBlock], conversationState: {} as any });
+      return [errBlock];
     }
 
     const blocks: AgentResponseBlock[] = [];
+    const triggerChunk = () => {
+      onChunk?.({ blocks, conversationState: {} as any });
+    };
 
     try {
       const isTenant = context.role === 'tenant';
@@ -552,6 +574,7 @@ RULES:
               ? `⚠️ **[Backup Mode Active]**\n\n${choiceMessage.content}` 
               : choiceMessage.content
           });
+          triggerChunk();
         }
 
         const toolCalls = choiceMessage.tool_calls;
@@ -598,6 +621,7 @@ RULES:
             rows: toolSummaryRows,
             editable: false,
           });
+          triggerChunk();
         }
         break;
       }
@@ -605,11 +629,13 @@ RULES:
       return blocks;
     } catch (err: any) {
       console.error('DeepSeek fallback error:', err);
-      return [{
+      const errBlock: AgentResponseBlock = {
         type: 'error',
         message: 'Primary and backup AI services are both unavailable.',
         suggestion: 'Please try again in a few moments.'
-      }];
+      };
+      onChunk?.({ blocks: [errBlock], conversationState: {} as any });
+      return [errBlock];
     }
   }
 }

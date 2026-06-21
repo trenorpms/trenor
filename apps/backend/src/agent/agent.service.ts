@@ -132,6 +132,7 @@ ${additionalContext || ''}`;
     formData?: Record<string, string>,
     conversationState?: ConversationState,
     chatHistory?: any[],
+    onChunk?: (data: { blocks: any[]; conversationState: any }) => void,
   ): Promise<AgentRunResponse> {
     const state: ConversationState = conversationState || { step: 'idle', history: [] };
     const blocks: AgentResponseBlock[] = [];
@@ -156,12 +157,12 @@ ${additionalContext || ''}`;
             const lowerMessage = message.toLowerCase();
             const isEditCommand = lowerMessage.includes('change') || lowerMessage.includes('edit') || lowerMessage.includes('update') || lowerMessage.includes('set');
             if (isEditCommand) {
-              return this.run('edit_data', context, message, fileBuffer, fileMimeType, fileName, formData, state);
+              return this.run('edit_data', context, message, fileBuffer, fileMimeType, fileName, formData, state, undefined, onChunk);
             }
           }
 
           // Delegate to new Sophia orchestrator for general/action queries
-          return this.sophia.run(message, context, state, chatHistory);
+          return this.sophia.run(message, context, state, chatHistory, onChunk);
         }
 
         // ─── FILE UPLOAD ───
@@ -557,8 +558,9 @@ ${additionalContext || ''}`;
     message?: string,
     conversationState?: ConversationState,
     chatHistory?: any[],
+    onChunk?: (data: { blocks: any[]; conversationState: any }) => void,
   ): Promise<AgentRunResponse> {
     const context = await this.buildTenantContext(tenantId);
-    return this.sophia.run(message || '', context, conversationState || { step: 'idle', history: [] }, chatHistory);
+    return this.sophia.run(message || '', context, conversationState || { step: 'idle', history: [] }, chatHistory, onChunk);
   }
 }

@@ -8,7 +8,9 @@ import {
   UploadedFile,
   UseInterceptors,
   Headers,
+  Res,
 } from '@nestjs/common';
+import * as express from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { AgentService } from './agent.service';
 import { SophiaToolsService } from './sophia-tools.service';
@@ -26,12 +28,17 @@ export class AgentController {
     @Body() body: any,
     @UploadedFile() file: any | undefined,
     @Headers('authorization') authHeader: string,
+    @Res() res: express.Response,
   ) {
     // Parse landlord identity from auth header (Bearer <userId>)
     const landlordId = authHeader?.replace('Bearer ', '')?.trim();
     if (!landlordId) {
-      return { blocks: [{ type: 'error', message: 'Not authenticated.' }], conversationState: {} };
+      res.status(401).json({ blocks: [{ type: 'error', message: 'Not authenticated.' }], conversationState: {} });
+      return;
     }
+
+    res.setHeader('Content-Type', 'application/x-ndjson');
+    res.setHeader('Transfer-Encoding', 'chunked');
 
     // Parse body fields — may come as stringified JSON from FormData
     let action = body.action || 'chat';
@@ -60,31 +67,46 @@ export class AgentController {
     const landlordEmail = body.landlordEmail || '';
     const context = await this.agentService.buildContext(landlordId, landlordName, landlordEmail);
 
-    // Run orchestrator
-    const result = await this.agentService.run(
-      action,
-      context,
-      message,
-      file?.buffer,
-      file?.mimetype,
-      file?.originalname,
-      formData,
-      conversationState,
-      chatHistory,
-    );
+    const onChunk = (data: { blocks: any[]; conversationState: any }) => {
+      res.write(JSON.stringify(data) + '\n');
+    };
 
-    return result;
+    try {
+      // Run orchestrator
+      const result = await this.agentService.run(
+        action,
+        context,
+        message,
+        file?.buffer,
+        file?.mimetype,
+        file?.originalname,
+        formData,
+        conversationState,
+        chatHistory,
+        onChunk,
+      );
+      res.write(JSON.stringify(result) + '\n');
+      res.end();
+    } catch (err: any) {
+      res.write(JSON.stringify({ blocks: [{ type: 'error', message: `Execution failed: ${err.message}` }], conversationState: {} }) + '\n');
+      res.end();
+    }
   }
 
   @Post('run-tenant')
   async runTenant(
     @Body() body: any,
     @Headers('authorization') authHeader: string,
+    @Res() res: express.Response,
   ) {
     const tenantId = authHeader?.replace('Bearer ', '')?.trim();
     if (!tenantId) {
-      return { blocks: [{ type: 'error', message: 'Not authenticated.' }], conversationState: {} };
+      res.status(401).json({ blocks: [{ type: 'error', message: 'Not authenticated.' }], conversationState: {} });
+      return;
     }
+
+    res.setHeader('Content-Type', 'application/x-ndjson');
+    res.setHeader('Transfer-Encoding', 'chunked');
 
     let action = body.action || 'chat';
     let message = body.message;
@@ -101,15 +123,25 @@ export class AgentController {
       else chatHistory = body.chatHistory;
     } catch { chatHistory = undefined; }
 
-    const result = await this.agentService.runTenant(
-      action,
-      tenantId,
-      message,
-      conversationState,
-      chatHistory,
-    );
+    const onChunk = (data: { blocks: any[]; conversationState: any }) => {
+      res.write(JSON.stringify(data) + '\n');
+    };
 
-    return result;
+    try {
+      const result = await this.agentService.runTenant(
+        action,
+        tenantId,
+        message,
+        conversationState,
+        chatHistory,
+        onChunk,
+      );
+      res.write(JSON.stringify(result) + '\n');
+      res.end();
+    } catch (err: any) {
+      res.write(JSON.stringify({ blocks: [{ type: 'error', message: `Execution failed: ${err.message}` }], conversationState: {} }) + '\n');
+      res.end();
+    }
   }
 
   @Get('tools')
