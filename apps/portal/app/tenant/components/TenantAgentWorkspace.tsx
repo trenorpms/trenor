@@ -228,49 +228,20 @@ export default function TenantAgentWorkspace({
         })
       });
 
-      const agentMsgIndex = updatedMsgs.length;
+      if (!response.ok) throw new Error('Response error');
+      const data = await response.json();
+
       const finalMsgs: AgentMessage[] = [...updatedMsgs, {
         role: 'agent',
-        blocks: [],
+        blocks: data.blocks || [],
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       }];
       saveMessages(finalMsgs);
 
-      if (!response.ok) throw new Error('Response error');
-
-      const reader = response.body?.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      if (reader) {
-        while (true) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n');
-          buffer = lines.pop() || '';
-
-          for (const line of lines) {
-            if (line.trim()) {
-              try {
-                const chunk = JSON.parse(line);
-                if (chunk.blocks) {
-                  finalMsgs[agentMsgIndex].blocks = chunk.blocks;
-                  saveMessages([...finalMsgs]);
-                }
-              } catch (e) {
-                console.error("Error parsing NDJSON chunk", e);
-              }
-            }
-          }
-        }
-      }
-
       if (onRefreshData) {
         onRefreshData();
       }
-    } catch (err: any) {
-      console.error("runTenant stream parsing error:", err);
+    } catch {
       const finalMsgs: AgentMessage[] = [...updatedMsgs, {
         role: 'agent',
         blocks: [{ type: 'error', message: 'Connection error. Make sure the backend is running.' }],

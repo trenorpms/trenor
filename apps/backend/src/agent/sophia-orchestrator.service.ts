@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { SophiaToolsService } from './sophia-tools.service';
 import { PropertiesService } from '../properties/properties.service';
-import { ToolDefinition, TOOL_REGISTRY, toGeminiFunctionDeclarations } from './tool-registry';
+import { TOOL_REGISTRY, toGeminiFunctionDeclarations } from './tool-registry';
 import { AgentContext, AgentResponseBlock, AgentRunResponse, ConversationState } from './agent.types';
 
 @Injectable()
@@ -29,18 +29,13 @@ export class SophiaOrchestratorService {
     context: AgentContext,
     conversationState?: ConversationState,
     chatHistory?: any[],
-    onChunk?: (data: { blocks: AgentResponseBlock[]; conversationState: ConversationState }) => void,
   ): Promise<AgentRunResponse> {
     const state: ConversationState = conversationState || { step: 'idle', history: [] };
     const blocks: AgentResponseBlock[] = [];
-    const triggerChunk = () => {
-      onChunk?.({ blocks, conversationState: state });
-    };
     const geminiKey = process.env.GEMINI_API_KEY;
 
     if (!geminiKey) {
       blocks.push({ type: 'error', message: 'Gemini API key not configured.', suggestion: 'Add GEMINI_API_KEY to your backend .env' });
-      triggerChunk();
       return { blocks, conversationState: state };
     }
 
@@ -225,13 +220,9 @@ RULES:
         while (attempt < maxAttempts) {
           attempt++;
           try {
-            const geminiController = new AbortController();
-            const geminiTimeout = setTimeout(() => geminiController.abort(), 20000);
-
             response = await fetch(url, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              signal: geminiController.signal,
               body: JSON.stringify({
                 system_instruction: { parts: [{ text: systemPrompt }] },
                 contents: normalizedContents,
@@ -240,8 +231,6 @@ RULES:
               }),
             });
 
-            clearTimeout(geminiTimeout);
-
             if (response.ok) {
               break;
             }
@@ -249,7 +238,6 @@ RULES:
             const isTransient = response.status === 429 || response.status === 503;
             if (isTransient && attempt < maxAttempts) {
               console.warn(`Gemini API returned ${response.status}. Retrying in ${delay}ms (attempt ${attempt}/${maxAttempts})...`);
-              onChunk?.({ blocks: [], conversationState: state, status: 'retrying' } as any);
               await new Promise(resolve => setTimeout(resolve, delay));
               delay *= 2;
             } else {
@@ -258,7 +246,6 @@ RULES:
           } catch (err: any) {
             if (attempt < maxAttempts) {
               console.warn(`Network error calling Gemini API: ${err.message}. Retrying in ${delay}ms...`);
-              onChunk?.({ blocks: [], conversationState: state, status: 'retrying' } as any);
               await new Promise(resolve => setTimeout(resolve, delay));
               delay *= 2;
             } else {
@@ -270,15 +257,12 @@ RULES:
         if (!response || !response.ok) {
           if (process.env.DEEPSEEK_API_KEY) {
             console.warn('Gemini failed. Failing over to DeepSeek backup mode...');
-            onChunk?.({ blocks: [], conversationState: state, status: 'switching' } as any);
-            const fallbackBlocks = await this.runDeepSeekFallback(message, context, chatHistory, enabledTools, onChunk);
+            const fallbackBlocks = await this.runDeepSeekFallback(message, context, enabledTools, chatHistory);
             blocks.push(...fallbackBlocks);
-            triggerChunk();
             break;
           }
           const errText = response ? await response.text() : 'Network connection failed';
           blocks.push({ type: 'error', message: `AI service error (${response?.status || 'network'})`, suggestion: errText.substring(0, 200) });
-          triggerChunk();
           break;
         }
 
@@ -287,13 +271,11 @@ RULES:
         if (!candidate) {
           if (process.env.DEEPSEEK_API_KEY) {
             console.warn('Gemini empty candidates. Failing over to DeepSeek backup mode...');
-            const fallbackBlocks = await this.runDeepSeekFallback(message, context, chatHistory, enabledTools, onChunk);
+            const fallbackBlocks = await this.runDeepSeekFallback(message, context, enabledTools, chatHistory);
             blocks.push(...fallbackBlocks);
-            triggerChunk();
             break;
           }
           blocks.push({ type: 'error', message: 'No response from AI.', suggestion: 'Try rephrasing your request.' });
-          triggerChunk();
           break;
         }
 
@@ -307,7 +289,6 @@ RULES:
           const textPart = parts.find((p: any) => p.text);
           if (textPart && textPart.text?.trim()) {
             blocks.push({ type: 'text', content: textPart.text });
-            triggerChunk();
           }
 
           const fn = functionCallPart.functionCall;
@@ -344,7 +325,6 @@ RULES:
         const textPart = parts.find((p: any) => p.text);
         if (textPart) {
           blocks.push({ type: 'text', content: textPart.text });
-          triggerChunk();
         }
 
         // If we called tools, add inline tool cards
@@ -365,7 +345,6 @@ RULES:
             rows: toolSummaryRows,
             editable: false,
           });
-          triggerChunk();
         }
 
         break; // Done
@@ -376,7 +355,6 @@ RULES:
         for (const tr of toolResults) {
           blocks.push({ type: 'text', content: `• **${tr.tool}**: ${tr.result.log}` });
         }
-        triggerChunk();
       }
 
     } catch (err: any) {
@@ -384,16 +362,13 @@ RULES:
       if (process.env.DEEPSEEK_API_KEY) {
         console.warn('Sophia loop threw error. Failing over to DeepSeek backup mode...');
         try {
-          const fallbackBlocks = await this.runDeepSeekFallback(message, context, chatHistory, enabledTools, onChunk);
+          const fallbackBlocks = await this.runDeepSeekFallback(message, context, enabledTools, chatHistory);
           blocks.push(...fallbackBlocks);
-          triggerChunk();
         } catch (fbErr) {
           blocks.push({ type: 'error', message: `Something went wrong: ${err.message}`, suggestion: 'Try again or rephrase your request.' });
-          triggerChunk();
         }
       } else {
         blocks.push({ type: 'error', message: `Something went wrong: ${err.message}`, suggestion: 'Try again or rephrase your request.' });
-        triggerChunk();
       }
     }
 
@@ -404,74 +379,29 @@ RULES:
   private async runDeepSeekFallback(
     message: string,
     context: AgentContext,
+    enabledTools: any[],
     chatHistory?: any[],
-    enabledTools: ToolDefinition[] = [],
-    onChunk?: (data: { blocks: AgentResponseBlock[]; conversationState: ConversationState }) => void,
   ): Promise<AgentResponseBlock[]> {
     const deepseekKey = process.env.DEEPSEEK_API_KEY;
     if (!deepseekKey) {
-      const errBlock: AgentResponseBlock = {
+      return [{
         type: 'error',
         message: 'Primary AI service is currently unavailable.',
         suggestion: 'No backup credentials configured. Please try again later.'
-      };
-      onChunk?.({ blocks: [errBlock], conversationState: {} as any });
-      return [errBlock];
+      }];
     }
-
-    const blocks: AgentResponseBlock[] = [];
-    const triggerChunk = () => {
-      onChunk?.({ blocks, conversationState: {} as any });
-    };
 
     try {
       const isTenant = context.role === 'tenant';
       const userType = isTenant ? `tenant ${context.tenantName || ''}` : `landlord ${context.landlordName || ''}`;
 
-      let systemPrompt = '';
-      if (isTenant) {
-        systemPrompt = `You are Sophia, the backup AI assistant for Trenor.
-You are speaking with the tenant ${context.tenantName || ''} (${context.tenantEmail || ''}).
-The primary AI service is experiencing transient limits, so you are running on our backup server.
-Keep responses concise, helpful, and direct. No jargon. Only use clean, human-centric language.
-- Only call tools when the user's message explicitly requests or requires information or actions.
-- When you call a tool, include a brief text explanation BEFORE the function call explaining what you are about to do.
-- Present data from tools clearly, formatting with key details.`;
-      } else {
-        systemPrompt = `You are Sophia, the backup AI assistant for Trenor.
-You are speaking with ${context.landlordName || ''} (${context.landlordEmail || ''}).
-The primary AI service is experiencing transient limits, so you are running on our backup server.
-They manage ${context.propertiesCount || 0} properties and ${context.tenantsCount || 0} tenants.
-RULES:
-- Be concise, helpful, and direct. No jargon. Use clean, human-centric language.
-- Only call tools when the user's message explicitly requests or requires information or actions.
-- When you do call a tool, include a brief, conversational text explanation BEFORE the function call explaining what you are about to do.
-- When asked to do something, USE the tools.
-- When presenting data from tools, format it clearly with key details.`;
-      }
-
-      // Convert ToolDefinition registry into OpenAI-compatible tools
-      const openaiTools = enabledTools.map(t => ({
-        type: 'function' as const,
-        function: {
-          name: t.name,
-          description: t.description,
-          parameters: {
-            type: 'object',
-            properties: Object.fromEntries(
-              t.parameters.map(p => [
-                p.name,
-                {
-                  type: p.type,
-                  description: p.description,
-                  ...(p.enum ? { enum: p.enum } : {}),
-                },
-              ]),
-            ),
-            required: t.parameters.filter(p => p.required).map(p => p.name),
-          },
-        },
-      }));
+      const systemPrompt = `You are Sophia, the backup AI assistant for Trenor.
+You are currently speaking with the ${userType}.
+The primary Gemini engine is temporarily offline, so you are running in backup mode powered by DeepSeek.
+- You have FULL access to all database-backed tools via function calls.
+- ONLY call tools when the user's message explicitly requests or requires information or actions that require a tool. Do NOT call tools for general chit-chat.
+- When you do call a tool, you MUST include a brief, conversational text explanation BEFORE the function call explaining what you are about to do (e.g. "Let me check the properties list for you...").
+- Keep your tone conversational, simple, and direct. Use human-centric language. No jargon.`;
 
       const serializeBlockToText = (block: any): string => {
         if (!block) return '';
@@ -540,87 +470,88 @@ RULES:
 
       messages.push({ role: 'user', content: message });
 
+      // Transform ToolDefinition[] to OpenAI style function calling declarations
+      const deepseekTools = enabledTools.map(t => ({
+        type: 'function' as const,
+        function: {
+          name: t.name,
+          description: t.description,
+          parameters: {
+            type: 'object',
+            properties: Object.fromEntries(
+              t.parameters.map((p: any) => [
+                p.name,
+                {
+                  type: p.type,
+                  description: p.description,
+                  ...(p.enum ? { enum: p.enum } : {}),
+                },
+              ]),
+            ),
+            required: t.parameters.filter((p: any) => p.required).map((p: any) => p.name),
+          },
+        },
+      }));
+
       let iterations = 0;
       const maxIterations = 6;
       const toolResults: Array<{ tool: string; result: any }> = [];
+      const blocks: AgentResponseBlock[] = [];
 
       while (iterations < maxIterations) {
         iterations++;
 
-        console.log(`[DeepSeek] Iteration ${iterations}/${maxIterations} — calling API...`);
-
-        // 15-second timeout to prevent hanging forever
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 15000);
-
-        let response;
-        try {
-          response = await fetch('https://api.deepseek.com/chat/completions', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${deepseekKey}`,
-            },
-            signal: controller.signal,
-            body: JSON.stringify({
-              model: 'deepseek-chat',
-              messages,
-              tools: openaiTools.length > 0 ? openaiTools : undefined,
-              tool_choice: openaiTools.length > 0 ? 'auto' : undefined,
-              temperature: 0.6,
-              max_tokens: 600,
-            }),
-          });
-        } catch (fetchErr: any) {
-          clearTimeout(timeout);
-          console.error(`[DeepSeek] Fetch failed: ${fetchErr.message}`);
-          throw fetchErr;
-        }
-        clearTimeout(timeout);
-
-        console.log(`[DeepSeek] API responded with status ${response.status}`);
+        const response = await fetch('https://api.deepseek.com/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${deepseekKey}`,
+          },
+          body: JSON.stringify({
+            model: 'deepseek-chat',
+            messages,
+            tools: deepseekTools.length > 0 ? deepseekTools : undefined,
+            tool_choice: deepseekTools.length > 0 ? 'auto' : undefined,
+            temperature: 0.6,
+            max_tokens: 600,
+          }),
+        });
 
         if (!response.ok) {
-          const errBody = await response.text().catch(() => 'no body');
-          console.error(`[DeepSeek] Error body: ${errBody}`);
-          throw new Error(`DeepSeek API returned status ${response.status}: ${errBody.substring(0, 200)}`);
+          throw new Error(`DeepSeek API returned status ${response.status}`);
         }
 
         const data = await response.json();
         const choice = data.choices?.[0];
         if (!choice) {
-          throw new Error('No candidate response from DeepSeek API.');
+          throw new Error('No candidate choices from DeepSeek API');
         }
 
-        const choiceMessage = choice.message;
-        messages.push(choiceMessage);
+        const assistantMessage = choice.message;
 
-        if (choiceMessage.content?.trim()) {
-          blocks.push({
-            type: 'text',
-            content: iterations === 1 
-              ? `⚠️ **[Backup Mode Active]**\n\n${choiceMessage.content}` 
-              : choiceMessage.content
-          });
-          triggerChunk();
-        }
+        // If there are tool calls, execute them
+        if (assistantMessage.tool_calls && assistantMessage.tool_calls.length > 0) {
+          messages.push(assistantMessage);
 
-        const toolCalls = choiceMessage.tool_calls;
-        if (toolCalls && toolCalls.length > 0) {
-          for (const call of toolCalls) {
-            const toolName = call.function.name;
+          if (assistantMessage.content && assistantMessage.content.trim()) {
+            blocks.push({ type: 'text', content: assistantMessage.content });
+          }
+
+          for (const toolCall of assistantMessage.tool_calls) {
+            const toolName = toolCall.function.name;
             let toolArgs = {};
             try {
-              toolArgs = JSON.parse(call.function.arguments);
-            } catch {}
+              toolArgs = JSON.parse(toolCall.function.arguments || '{}');
+            } catch {
+              console.warn('Failed to parse DeepSeek function arguments');
+            }
 
             const toolResult = await this.tools.executeTool(toolName, toolArgs, context);
             toolResults.push({ tool: toolName, result: toolResult });
 
-            // Feed tool result back in OpenAI format
             messages.push({
               role: 'tool',
-              tool_call_id: call.id,
+              tool_call_id: toolCall.id,
               name: toolName,
               content: JSON.stringify({
                 success: toolResult.success,
@@ -629,41 +560,48 @@ RULES:
               }),
             });
           }
-          continue;
+
+          continue; // Next iteration to feed tool results back to DeepSeek
         }
 
-        if (toolResults.length > 0) {
-          const toolSummaryRows = toolResults.map(tr => ({
-            task: getHumanActionName(tr.tool),
-            status: tr.result.success ? '✓' : '✗',
-            detail: tr.result.log || '',
-          }));
+        // If no tool calls, it is a final conversational text response
+        if (assistantMessage.content) {
           blocks.push({
-            type: 'data_table',
-            title: 'Actions taken',
-            columns: [
-              { key: 'task', label: 'Task' },
-              { key: 'status', label: '' },
-              { key: 'detail', label: 'Result' },
-            ],
-            rows: toolSummaryRows,
-            editable: false,
+            type: 'text',
+            content: `⚠️ **[Backup Mode Active]**\n\n${assistantMessage.content}`
           });
-          triggerChunk();
         }
         break;
+      }
+
+      // If we called tools, add inline tool cards
+      if (toolResults.length > 0) {
+        const toolSummaryRows = toolResults.map(tr => ({
+          task: getHumanActionName(tr.tool),
+          status: tr.result.success ? '✓' : '✗',
+          detail: tr.result.log || '',
+        }));
+        blocks.push({
+          type: 'data_table',
+          title: 'Actions taken',
+          columns: [
+            { key: 'task', label: 'Task' },
+            { key: 'status', label: '' },
+            { key: 'detail', label: 'Result' },
+          ],
+          rows: toolSummaryRows,
+          editable: false,
+        });
       }
 
       return blocks;
     } catch (err: any) {
       console.error('DeepSeek fallback error:', err);
-      const errBlock: AgentResponseBlock = {
+      return [{
         type: 'error',
         message: 'Primary and backup AI services are both unavailable.',
         suggestion: 'Please try again in a few moments.'
-      };
-      onChunk?.({ blocks: [errBlock], conversationState: {} as any });
-      return [errBlock];
+      }];
     }
   }
 }

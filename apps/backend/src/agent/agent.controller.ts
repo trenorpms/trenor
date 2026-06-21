@@ -8,9 +8,7 @@ import {
   UploadedFile,
   UseInterceptors,
   Headers,
-  Res,
 } from '@nestjs/common';
-import * as express from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { AgentService } from './agent.service';
 import { SophiaToolsService } from './sophia-tools.service';
@@ -28,31 +26,12 @@ export class AgentController {
     @Body() body: any,
     @UploadedFile() file: any | undefined,
     @Headers('authorization') authHeader: string,
-    @Res() res: express.Response,
   ) {
     // Parse landlord identity from auth header (Bearer <userId>)
     const landlordId = authHeader?.replace('Bearer ', '')?.trim();
     if (!landlordId) {
-      res.status(401).json({ blocks: [{ type: 'error', message: 'Not authenticated.' }], conversationState: {} });
-      return;
+      return { blocks: [{ type: 'error', message: 'Not authenticated.' }], conversationState: {} };
     }
-
-    res.setHeader('Content-Type', 'application/x-ndjson');
-    res.setHeader('Transfer-Encoding', 'chunked');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('X-Accel-Buffering', 'no');
-
-    // Track connection state — avoid writing to dead sockets
-    let connectionAlive = true;
-    res.on('close', () => { connectionAlive = false; });
-
-    const safeWrite = (data: any) => {
-      if (!connectionAlive) return;
-      try { res.write(JSON.stringify(data) + '\n'); } catch {}
-    };
-
-    // Immediate heartbeat so the connection stays alive during retries
-    safeWrite({ status: 'thinking' });
 
     // Parse body fields — may come as stringified JSON from FormData
     let action = body.action || 'chat';
@@ -81,60 +60,31 @@ export class AgentController {
     const landlordEmail = body.landlordEmail || '';
     const context = await this.agentService.buildContext(landlordId, landlordName, landlordEmail);
 
-    const onChunk = (data: { blocks: any[]; conversationState: any }) => {
-      safeWrite(data);
-    };
+    // Run orchestrator
+    const result = await this.agentService.run(
+      action,
+      context,
+      message,
+      file?.buffer,
+      file?.mimetype,
+      file?.originalname,
+      formData,
+      conversationState,
+      chatHistory,
+    );
 
-    try {
-      // Run orchestrator
-      const result = await this.agentService.run(
-        action,
-        context,
-        message,
-        file?.buffer,
-        file?.mimetype,
-        file?.originalname,
-        formData,
-        conversationState,
-        chatHistory,
-        onChunk,
-      );
-      safeWrite(result);
-    } catch (err: any) {
-      safeWrite({ blocks: [{ type: 'error', message: `Execution failed: ${err.message}` }], conversationState: {} });
-    } finally {
-      if (connectionAlive) try { res.end(); } catch {}
-    }
+    return result;
   }
 
   @Post('run-tenant')
   async runTenant(
     @Body() body: any,
     @Headers('authorization') authHeader: string,
-    @Res() res: express.Response,
   ) {
     const tenantId = authHeader?.replace('Bearer ', '')?.trim();
     if (!tenantId) {
-      res.status(401).json({ blocks: [{ type: 'error', message: 'Not authenticated.' }], conversationState: {} });
-      return;
+      return { blocks: [{ type: 'error', message: 'Not authenticated.' }], conversationState: {} };
     }
-
-    res.setHeader('Content-Type', 'application/x-ndjson');
-    res.setHeader('Transfer-Encoding', 'chunked');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('X-Accel-Buffering', 'no');
-
-    // Track connection state
-    let connectionAlive = true;
-    res.on('close', () => { connectionAlive = false; });
-
-    const safeWrite = (data: any) => {
-      if (!connectionAlive) return;
-      try { res.write(JSON.stringify(data) + '\n'); } catch {}
-    };
-
-    // Immediate heartbeat
-    safeWrite({ status: 'thinking' });
 
     let action = body.action || 'chat';
     let message = body.message;
@@ -151,25 +101,15 @@ export class AgentController {
       else chatHistory = body.chatHistory;
     } catch { chatHistory = undefined; }
 
-    const onChunk = (data: { blocks: any[]; conversationState: any }) => {
-      safeWrite(data);
-    };
+    const result = await this.agentService.runTenant(
+      action,
+      tenantId,
+      message,
+      conversationState,
+      chatHistory,
+    );
 
-    try {
-      const result = await this.agentService.runTenant(
-        action,
-        tenantId,
-        message,
-        conversationState,
-        chatHistory,
-        onChunk,
-      );
-      safeWrite(result);
-    } catch (err: any) {
-      safeWrite({ blocks: [{ type: 'error', message: `Execution failed: ${err.message}` }], conversationState: {} });
-    } finally {
-      if (connectionAlive) try { res.end(); } catch {}
-    }
+    return result;
   }
 
   @Get('tools')

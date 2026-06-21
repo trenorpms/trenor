@@ -121,51 +121,14 @@ export default function SophiaFloatingWidget() {
         headers: { 'Authorization': `Bearer ${user?.id || ''}` },
         body: payload
       });
-
-      const agentMsgIndex = newMsgs.length;
-      const updatedMsgs = [...newMsgs, {
-        role: 'agent' as const,
-        blocks: [] as any[],
+      const data = await res.json();
+      saveState(data.conversationState || {});
+      saveHistory([...newMsgs, {
+        role: 'agent',
+        blocks: data.blocks || [],
         timestamp: new Date().toLocaleTimeString()
-      }];
-      saveHistory(updatedMsgs);
-
-      if (!res.ok) {
-        throw new Error('Response error');
-      }
-
-      const reader = res.body?.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      if (reader) {
-        while (true) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n');
-          buffer = lines.pop() || '';
-
-          for (const line of lines) {
-            if (line.trim()) {
-              try {
-                const chunk = JSON.parse(line);
-                if (chunk.blocks) {
-                  updatedMsgs[agentMsgIndex].blocks = chunk.blocks;
-                  saveHistory([...updatedMsgs]);
-                }
-                if (chunk.conversationState) {
-                  saveState(chunk.conversationState);
-                }
-              } catch (err) {
-                console.error('Error parsing stream chunk:', err);
-              }
-            }
-          }
-        }
-      }
-    } catch (e: any) {
-      console.error("SophiaFloatingWidget stream parsing error:", e);
+      }]);
+    } catch (e) {
       saveHistory([...newMsgs, {
         role: 'agent',
         blocks: [{ type: 'error', message: 'Failed to run Sophia. Check backend link.' }],

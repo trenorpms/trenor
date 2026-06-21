@@ -362,53 +362,21 @@ export default function AgentWorkspacePanel({ user: propUser }: AgentWorkspacePa
         body: formPayload,
       });
 
-      const agentMsgIndex = currentHistory.length;
-      const updatedMsgs: AgentMessage[] = [...currentHistory, {
+      const data = await res.json();
+
+      const newMsgs: AgentMessage[] = [...currentHistory, {
         role: 'agent',
-        blocks: [],
+        blocks: data.blocks || [],
         timestamp: new Date().toLocaleTimeString(),
       }];
-      updateCurrentSession(updatedMsgs, conversationState);
-
-      if (!res.ok) {
-        throw new Error('Response error');
-      }
-
-      const reader = res.body?.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      if (reader) {
-        while (true) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n');
-          buffer = lines.pop() || '';
-
-          for (const line of lines) {
-            if (line.trim()) {
-              try {
-                const chunk = JSON.parse(line);
-                if (chunk.blocks) {
-                  updatedMsgs[agentMsgIndex].blocks = chunk.blocks;
-                  updateCurrentSession([...updatedMsgs], chunk.conversationState || conversationState);
-                }
-              } catch (e) {
-                console.error("Error parsing NDJSON chunk", e);
-              }
-            }
-          }
-        }
-      }
+      updateCurrentSession(newMsgs, data.conversationState || {});
     } catch (err: any) {
-      console.error("AgentWorkspacePanel sendToAgent stream parsing error:", err);
       const newMsgs: AgentMessage[] = [...currentHistory, {
         role: 'agent',
         blocks: [{ type: 'error', message: 'Connection error. Make sure the backend is running.' }],
         timestamp: new Date().toLocaleTimeString(),
       }];
-      updateCurrentSession(newMsgs, conversationState);
+      updateCurrentSession(newMsgs);
     } finally {
       setLoading(false);
       setCurrentStatus('');
