@@ -202,11 +202,49 @@ export default function AgentWorkspace({ addToast, router, user }: AgentWorkspac
   const [loading, setLoading] = useState(false);
   const [currentStatus, setCurrentStatus] = useState<string>('');
 
-  useRealtime(user, useCallback((notif: any) => {
-    if (notif.title === 'Sophia') {
+  const { socket } = useRealtime(user, useCallback((notif: any) => {
+    if (notif.title === 'Sophia' || notif.title === 'Agent') {
       setCurrentStatus(notif.message);
     }
   }, []));
+
+  useEffect(() => {
+    if (!socket || !activeSessionId) return;
+
+    const handleAgentBlock = (data: { block: AgentResponseBlock }) => {
+      setSessions(prevSessions => {
+        const next = prevSessions.map(s => {
+          if (s.id === activeSessionId) {
+            const msgs = [...s.messages];
+            if (msgs.length > 0) {
+              const lastMsg = { ...msgs[msgs.length - 1] };
+              if (lastMsg.role === 'agent') {
+                const isDuplicate = lastMsg.blocks?.some(
+                  (b: any) => b.type === data.block.type && JSON.stringify(b) === JSON.stringify(data.block)
+                );
+                if (!isDuplicate) {
+                  lastMsg.blocks = [...(lastMsg.blocks || []), data.block];
+                  msgs[msgs.length - 1] = lastMsg;
+                }
+              }
+            }
+            const updated = { ...s, messages: msgs };
+            if (user?.id) {
+              localStorage.setItem(`trenor_sessions_${user.id}`, JSON.stringify(prevSessions.map(ps => ps.id === activeSessionId ? updated : ps)));
+            }
+            return updated;
+          }
+          return s;
+        });
+        return next;
+      });
+    };
+
+    socket.on('agent-block', handleAgentBlock);
+    return () => {
+      socket.off('agent-block', handleAgentBlock);
+    };
+  }, [socket, activeSessionId, user?.id]);
 
   // Settings Panel State
   const [showSettings, setShowSettings] = useState(false);
@@ -392,6 +430,15 @@ export default function AgentWorkspace({ addToast, router, user }: AgentWorkspac
     setCurrentStatus('');
 
     const currentHistory = extra?.currentHistory || messages;
+
+    // Pre-insert placeholder message for Sophia's response that we will stream into
+    const streamingMsg: AgentMessage = {
+      role: 'agent',
+      blocks: [],
+      timestamp: new Date().toLocaleTimeString(),
+    };
+    const msgsWithPlaceholder = [...currentHistory, streamingMsg];
+    updateCurrentSession(msgsWithPlaceholder);
 
     const formPayload = new FormData();
     formPayload.append('action', action);

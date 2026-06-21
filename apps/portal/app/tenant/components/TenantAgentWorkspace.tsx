@@ -191,11 +191,40 @@ export default function TenantAgentWorkspace({
   }, [messages, scrollToBottom]);
 
   // Subscribe to Sophia's real-time events
-  useRealtime(user, useCallback((notif: any) => {
-    if (notif.title === 'Sophia') {
+  const { socket } = useRealtime(user, useCallback((notif: any) => {
+    if (notif.title === 'Sophia' || notif.title === 'Agent') {
       setCurrentStatus(notif.message);
     }
   }, []));
+
+  useEffect(() => {
+    if (!socket || !user?.id) return;
+
+    const handleAgentBlock = (data: { block: AgentResponseBlock }) => {
+      setMessages(prev => {
+        const next = [...prev];
+        if (next.length > 0) {
+          const lastMsg = { ...next[next.length - 1] };
+          if (lastMsg.role === 'agent') {
+            const isDuplicate = lastMsg.blocks?.some(
+              (b: any) => b.type === data.block.type && JSON.stringify(b) === JSON.stringify(data.block)
+            );
+            if (!isDuplicate) {
+              lastMsg.blocks = [...(lastMsg.blocks || []), data.block];
+              next[next.length - 1] = lastMsg;
+              localStorage.setItem(`trenor_tenant_chat_${user.id}`, JSON.stringify(next));
+            }
+          }
+        }
+        return next;
+      });
+    };
+
+    socket.on('agent-block', handleAgentBlock);
+    return () => {
+      socket.off('agent-block', handleAgentBlock);
+    };
+  }, [socket, user?.id]);
 
   const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000/api';
 
@@ -213,7 +242,15 @@ export default function TenantAgentWorkspace({
       content: userText,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     }];
-    saveMessages(updatedMsgs);
+    
+    // Pre-insert placeholder message for Sophia's response that we will stream into
+    const streamingMsg: AgentMessage = {
+      role: 'agent',
+      blocks: [],
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+    const msgsWithPlaceholder = [...updatedMsgs, streamingMsg];
+    saveMessages(msgsWithPlaceholder);
 
     try {
       const response = await fetch(`${API}/agent/run-tenant`, {

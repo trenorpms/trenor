@@ -2,6 +2,7 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useRealtime } from '../app/hooks/useRealtime';
 
 interface TextBlock { type: 'text'; content: string; }
 interface FormField { key: string; label: string; fieldType: 'text' | 'email' | 'tel' | 'number' | 'select'; placeholder?: string; required?: boolean; options?: string[]; value?: string; }
@@ -30,9 +31,54 @@ export default function SophiaFloatingWidget() {
   const [loading, setLoading] = useState(false);
   const [conversationState, setConversationState] = useState<any>({});
   const [user, setUser] = useState<any>(null);
+  const [currentStatus, setCurrentStatus] = useState<string>('');
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const { socket } = useRealtime(user);
+
+  // Listen for agent-block event to stream blocks in real-time
+  useEffect(() => {
+    if (!socket || !user?.id) return;
+    
+    const handleAgentBlock = (data: { block: AgentResponseBlock }) => {
+      setMessages(prev => {
+        const next = [...prev];
+        if (next.length > 0) {
+          const lastMsg = next[next.length - 1];
+          if (lastMsg && lastMsg.role === 'agent') {
+            const isDuplicate = lastMsg.blocks?.some(
+              (b: any) => b.type === data.block.type && JSON.stringify(b) === JSON.stringify(data.block)
+            );
+            if (!isDuplicate) {
+              const updated: AgentMessage = {
+                ...lastMsg,
+                blocks: [...(lastMsg.blocks || []), data.block],
+              };
+              next[next.length - 1] = updated;
+              localStorage.setItem(`trenor_floating_chat_${user.id}`, JSON.stringify(next));
+            }
+          }
+        }
+        return next;
+      });
+    };
+
+    const handleNotification = (notif: any) => {
+      if (notif.title === 'Sophia' || notif.title === 'Agent') {
+        setCurrentStatus(notif.message);
+      }
+    };
+
+    socket.on('agent-block', handleAgentBlock);
+    socket.on('notification', handleNotification);
+
+    return () => {
+      socket.off('agent-block', handleAgentBlock);
+      socket.off('notification', handleNotification);
+    };
+  }, [socket, user?.id]);
 
   // Load user details
   useEffect(() => {
@@ -88,6 +134,7 @@ export default function SophiaFloatingWidget() {
   // Send request
   const handleSend = async (action: string, textOverride?: string, file?: File, formData?: Record<string, string>) => {
     setLoading(true);
+    setCurrentStatus('');
     const msgToSend = textOverride || input.trim();
     if (!msgToSend && !file && !formData) {
       setLoading(false);
@@ -103,7 +150,16 @@ export default function SophiaFloatingWidget() {
     } else if (file) {
       newMsgs.push({ role: 'user', content: `📎 Attached: ${file.name}`, timestamp: new Date().toLocaleTimeString() });
     }
-    saveHistory(newMsgs);
+
+    // Pre-insert placeholder message for Sophia's response that we will stream into
+    const streamingMsg: AgentMessage = {
+      role: 'agent',
+      blocks: [],
+      timestamp: new Date().toLocaleTimeString()
+    };
+    const msgsWithPlaceholder = [...newMsgs, streamingMsg];
+    setMessages(msgsWithPlaceholder);
+    saveHistory(msgsWithPlaceholder);
 
     const payload = new FormData();
     payload.append('action', action);
@@ -124,19 +180,24 @@ export default function SophiaFloatingWidget() {
       });
       const data = await res.json();
       saveState(data.conversationState || {});
-      saveHistory([...newMsgs, {
+      const finalMsgs: AgentMessage[] = [...newMsgs, {
         role: 'agent',
         blocks: data.blocks || [],
         timestamp: new Date().toLocaleTimeString()
-      }]);
+      }];
+      setMessages(finalMsgs);
+      saveHistory(finalMsgs);
     } catch (e) {
-      saveHistory([...newMsgs, {
+      const finalMsgs: AgentMessage[] = [...newMsgs, {
         role: 'agent',
         blocks: [{ type: 'error', message: 'Failed to run Sophia. Check backend link.' }],
         timestamp: new Date().toLocaleTimeString()
-      }]);
+      }];
+      setMessages(finalMsgs);
+      saveHistory(finalMsgs);
     } finally {
       setLoading(false);
+      setCurrentStatus('');
     }
   };
 
@@ -291,12 +352,17 @@ export default function SophiaFloatingWidget() {
               )}
 
               {loading && (
-                <div className="flex items-center gap-1.5 pl-1 py-1 mr-auto">
+                <div className="flex flex-col gap-1 mr-auto items-start pl-1 py-1">
                   <div className="flex gap-1 bg-[var(--bg-tertiary)] border border-[var(--border-muted)] rounded-full px-3 py-2 items-center">
                     <span className="w-1.5 h-1.5 bg-[var(--accent-coral)] rounded-full animate-bounce [animation-delay:-0.3s]" />
                     <span className="w-1.5 h-1.5 bg-[var(--accent-coral)] rounded-full animate-bounce [animation-delay:-0.15s]" />
                     <span className="w-1.5 h-1.5 bg-[var(--accent-coral)] rounded-full animate-bounce" />
                   </div>
+                  {currentStatus && (
+                    <span className="text-[9px] font-mono text-[var(--text-tertiary)] bg-[var(--bg-tertiary)] border border-[var(--border-muted)] px-2 py-0.5 rounded mt-1 animate-pulse">
+                      {currentStatus}
+                    </span>
+                  )}
                 </div>
               )}
             </div>

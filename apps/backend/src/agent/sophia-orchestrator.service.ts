@@ -3,13 +3,23 @@ import { SophiaToolsService } from './sophia-tools.service';
 import { PropertiesService } from '../properties/properties.service';
 import { TOOL_REGISTRY, toGeminiFunctionDeclarations } from './tool-registry';
 import { AgentContext, AgentResponseBlock, AgentRunResponse, ConversationState } from './agent.types';
+import { RealtimeGateway } from '../realtime.gateway';
 
 @Injectable()
 export class SophiaOrchestratorService {
   constructor(
     private readonly tools: SophiaToolsService,
     private readonly properties: PropertiesService,
+    private readonly realtime: RealtimeGateway,
   ) {}
+
+  private emitBlock(context: AgentContext, block: AgentResponseBlock) {
+    if (this.realtime && context.landlordId) {
+      const role = context.role === 'tenant' ? 'tenant' : 'landlord';
+      const identifier = role === 'tenant' ? (context.tenantEmail || context.landlordId) : context.landlordId;
+      this.realtime.sendAgentBlock(identifier, role, block);
+    }
+  }
 
   async buildContext(landlordId: string, landlordName: string, landlordEmail: string): Promise<AgentContext> {
     let propertiesCount = 0;
@@ -288,13 +298,26 @@ RULES:
           // If Gemini generated text before calling the function, show it
           const textPart = parts.find((p: any) => p.text);
           if (textPart && textPart.text?.trim()) {
-            blocks.push({ type: 'text', content: textPart.text });
+            const textBlock: AgentResponseBlock = { type: 'text', content: textPart.text };
+            blocks.push(textBlock);
+            this.emitBlock(context, textBlock);
           }
 
           const fn = functionCallPart.functionCall;
           const toolName = fn.name;
           const toolArgs = fn.args || {};
           const callId = fn.id;
+
+          // Send real-time indicator notification
+          if (this.realtime && context.landlordId) {
+            const role = context.role === 'tenant' ? 'tenant' : 'landlord';
+            const identifier = role === 'tenant' ? (context.tenantEmail || context.landlordId) : context.landlordId;
+            this.realtime.sendNotification(identifier, role, {
+              title: 'Agent',
+              message: `${getHumanActionName(toolName)}...`,
+              type: 'info',
+            });
+          }
 
           // Execute the tool
           const toolResult = await this.tools.executeTool(toolName, toolArgs, context);
@@ -324,7 +347,9 @@ RULES:
         // No function call — Gemini produced a text response. We're done.
         const textPart = parts.find((p: any) => p.text);
         if (textPart) {
-          blocks.push({ type: 'text', content: textPart.text });
+          const textBlock: AgentResponseBlock = { type: 'text', content: textPart.text };
+          blocks.push(textBlock);
+          this.emitBlock(context, textBlock);
         }
 
         // If we called tools, add inline tool cards
@@ -334,7 +359,7 @@ RULES:
             status: tr.result.success ? '✓' : '✗',
             detail: tr.result.log || '',
           }));
-          blocks.push({
+          const summaryBlock: AgentResponseBlock = {
             type: 'data_table',
             title: 'Actions taken',
             columns: [
@@ -344,7 +369,9 @@ RULES:
             ],
             rows: toolSummaryRows,
             editable: false,
-          });
+          };
+          blocks.push(summaryBlock);
+          this.emitBlock(context, summaryBlock);
         }
 
         break; // Done
@@ -534,7 +561,9 @@ The primary Gemini engine is temporarily offline, so you are running in backup m
           messages.push(assistantMessage);
 
           if (assistantMessage.content && assistantMessage.content.trim()) {
-            blocks.push({ type: 'text', content: assistantMessage.content });
+            const textBlock: AgentResponseBlock = { type: 'text', content: assistantMessage.content };
+            blocks.push(textBlock);
+            this.emitBlock(context, textBlock);
           }
 
           for (const toolCall of assistantMessage.tool_calls) {
@@ -544,6 +573,17 @@ The primary Gemini engine is temporarily offline, so you are running in backup m
               toolArgs = JSON.parse(toolCall.function.arguments || '{}');
             } catch {
               console.warn('Failed to parse DeepSeek function arguments');
+            }
+
+            // Send real-time indicator notification
+            if (this.realtime && context.landlordId) {
+              const role = context.role === 'tenant' ? 'tenant' : 'landlord';
+              const identifier = role === 'tenant' ? (context.tenantEmail || context.landlordId) : context.landlordId;
+              this.realtime.sendNotification(identifier, role, {
+                title: 'Agent',
+                message: `${getHumanActionName(toolName)}...`,
+                type: 'info',
+              });
             }
 
             const toolResult = await this.tools.executeTool(toolName, toolArgs, context);
@@ -566,10 +606,12 @@ The primary Gemini engine is temporarily offline, so you are running in backup m
 
         // If no tool calls, it is a final conversational text response
         if (assistantMessage.content) {
-          blocks.push({
+          const textBlock: AgentResponseBlock = {
             type: 'text',
             content: `⚠️ **[Backup Mode Active]**\n\n${assistantMessage.content}`
-          });
+          };
+          blocks.push(textBlock);
+          this.emitBlock(context, textBlock);
         }
         break;
       }
@@ -581,7 +623,7 @@ The primary Gemini engine is temporarily offline, so you are running in backup m
           status: tr.result.success ? '✓' : '✗',
           detail: tr.result.log || '',
         }));
-        blocks.push({
+        const summaryBlock: AgentResponseBlock = {
           type: 'data_table',
           title: 'Actions taken',
           columns: [
@@ -591,7 +633,9 @@ The primary Gemini engine is temporarily offline, so you are running in backup m
           ],
           rows: toolSummaryRows,
           editable: false,
-        });
+        };
+        blocks.push(summaryBlock);
+        this.emitBlock(context, summaryBlock);
       }
 
       return blocks;

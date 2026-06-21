@@ -71,4 +71,14 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       console.warn('RealtimeGateway server not initialized yet.');
     }
   }
+
+  sendAgentBlock(identifier: string, role: 'landlord' | 'tenant', block: any) {
+    const channel = role === 'landlord' ? `landlord:${identifier}` : `tenant:${identifier}`;
+    if (this.server) {
+      this.server.to(channel).emit('agent-block', { block });
+      console.log(`Dispatched real-time agent-block to ${channel}:`, block);
+    } else {
+      console.warn('RealtimeGateway server not initialized yet.');
+    }
+  }
 }
