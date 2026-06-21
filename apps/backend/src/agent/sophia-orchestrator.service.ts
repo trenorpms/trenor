@@ -225,9 +225,13 @@ RULES:
         while (attempt < maxAttempts) {
           attempt++;
           try {
+            const geminiController = new AbortController();
+            const geminiTimeout = setTimeout(() => geminiController.abort(), 20000);
+
             response = await fetch(url, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
+              signal: geminiController.signal,
               body: JSON.stringify({
                 system_instruction: { parts: [{ text: systemPrompt }] },
                 contents: normalizedContents,
@@ -235,6 +239,8 @@ RULES:
                 tool_config: { function_calling_config: { mode: 'AUTO' } },
               }),
             });
+
+            clearTimeout(geminiTimeout);
 
             if (response.ok) {
               break;
@@ -541,24 +547,43 @@ RULES:
       while (iterations < maxIterations) {
         iterations++;
 
-        const response = await fetch('https://api.deepseek.com/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${deepseekKey}`,
-          },
-          body: JSON.stringify({
-            model: 'deepseek-chat',
-            messages,
-            tools: openaiTools.length > 0 ? openaiTools : undefined,
-            tool_choice: openaiTools.length > 0 ? 'auto' : undefined,
-            temperature: 0.6,
-            max_tokens: 600,
-          }),
-        });
+        console.log(`[DeepSeek] Iteration ${iterations}/${maxIterations} — calling API...`);
+
+        // 15-second timeout to prevent hanging forever
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 15000);
+
+        let response;
+        try {
+          response = await fetch('https://api.deepseek.com/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${deepseekKey}`,
+            },
+            signal: controller.signal,
+            body: JSON.stringify({
+              model: 'deepseek-chat',
+              messages,
+              tools: openaiTools.length > 0 ? openaiTools : undefined,
+              tool_choice: openaiTools.length > 0 ? 'auto' : undefined,
+              temperature: 0.6,
+              max_tokens: 600,
+            }),
+          });
+        } catch (fetchErr: any) {
+          clearTimeout(timeout);
+          console.error(`[DeepSeek] Fetch failed: ${fetchErr.message}`);
+          throw fetchErr;
+        }
+        clearTimeout(timeout);
+
+        console.log(`[DeepSeek] API responded with status ${response.status}`);
 
         if (!response.ok) {
-          throw new Error(`DeepSeek API returned status ${response.status}`);
+          const errBody = await response.text().catch(() => 'no body');
+          console.error(`[DeepSeek] Error body: ${errBody}`);
+          throw new Error(`DeepSeek API returned status ${response.status}: ${errBody.substring(0, 200)}`);
         }
 
         const data = await response.json();
