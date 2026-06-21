@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { SophiaToolsService } from './sophia-tools.service';
 import { PropertiesService } from '../properties/properties.service';
-import { TOOL_REGISTRY, toGeminiFunctionDeclarations } from './tool-registry';
+import { ToolDefinition, TOOL_REGISTRY, toGeminiFunctionDeclarations } from './tool-registry';
 import { AgentContext, AgentResponseBlock, AgentRunResponse, ConversationState } from './agent.types';
 
 @Injectable()
@@ -257,7 +257,7 @@ RULES:
         if (!response || !response.ok) {
           if (process.env.DEEPSEEK_API_KEY) {
             console.warn('Gemini failed. Failing over to DeepSeek backup mode...');
-            const fallbackBlocks = await this.runDeepSeekFallback(message, context, chatHistory);
+            const fallbackBlocks = await this.runDeepSeekFallback(message, context, chatHistory, enabledTools);
             blocks.push(...fallbackBlocks);
             break;
           }
@@ -271,7 +271,7 @@ RULES:
         if (!candidate) {
           if (process.env.DEEPSEEK_API_KEY) {
             console.warn('Gemini empty candidates. Failing over to DeepSeek backup mode...');
-            const fallbackBlocks = await this.runDeepSeekFallback(message, context, chatHistory);
+            const fallbackBlocks = await this.runDeepSeekFallback(message, context, chatHistory, enabledTools);
             blocks.push(...fallbackBlocks);
             break;
           }
@@ -362,7 +362,7 @@ RULES:
       if (process.env.DEEPSEEK_API_KEY) {
         console.warn('Sophia loop threw error. Failing over to DeepSeek backup mode...');
         try {
-          const fallbackBlocks = await this.runDeepSeekFallback(message, context, chatHistory);
+          const fallbackBlocks = await this.runDeepSeekFallback(message, context, chatHistory, enabledTools);
           blocks.push(...fallbackBlocks);
         } catch (fbErr) {
           blocks.push({ type: 'error', message: `Something went wrong: ${err.message}`, suggestion: 'Try again or rephrase your request.' });
@@ -380,6 +380,7 @@ RULES:
     message: string,
     context: AgentContext,
     chatHistory?: any[],
+    enabledTools: ToolDefinition[] = [],
   ): Promise<AgentResponseBlock[]> {
     const deepseekKey = process.env.DEEPSEEK_API_KEY;
     if (!deepseekKey) {
@@ -390,19 +391,56 @@ RULES:
       }];
     }
 
+    const blocks: AgentResponseBlock[] = [];
+
     try {
       const isTenant = context.role === 'tenant';
       const userType = isTenant ? `tenant ${context.tenantName || ''}` : `landlord ${context.landlordName || ''}`;
 
-      const systemPrompt = `You are Sophia, the backup AI assistant for Trenor.
-You are currently speaking with the ${userType}.
-Our primary tool-execution and document-parsing engine is temporarily offline.
-You are running in a lightweight backup mode powered by DeepSeek.
+      let systemPrompt = '';
+      if (isTenant) {
+        systemPrompt = `You are Sophia, the backup AI assistant for Trenor.
+You are speaking with the tenant ${context.tenantName || ''} (${context.tenantEmail || ''}).
+The primary AI service is experiencing transient limits, so you are running on our backup server.
+Keep responses concise, helpful, and direct. No jargon. Only use clean, human-centric language.
+- Only call tools when the user's message explicitly requests or requires information or actions.
+- When you call a tool, include a brief text explanation BEFORE the function call explaining what you are about to do.
+- Present data from tools clearly, formatting with key details.`;
+      } else {
+        systemPrompt = `You are Sophia, the backup AI assistant for Trenor.
+You are speaking with ${context.landlordName || ''} (${context.landlordEmail || ''}).
+The primary AI service is experiencing transient limits, so you are running on our backup server.
+They manage ${context.propertiesCount || 0} properties and ${context.tenantsCount || 0} tenants.
 RULES:
-- Politely inform the user that primary tools, database actions, and file uploads are temporarily offline.
-- Do not pretend that you can execute tools, retrieve databases, list invoices, or invite managers.
-- Keep your tone conversational, simple, and direct. Use human-centric language. No jargon.
-- Assist the user with general inquiries and general advice as best as you can.`;
+- Be concise, helpful, and direct. No jargon. Use clean, human-centric language.
+- Only call tools when the user's message explicitly requests or requires information or actions.
+- When you do call a tool, include a brief, conversational text explanation BEFORE the function call explaining what you are about to do.
+- When asked to do something, USE the tools.
+- When presenting data from tools, format it clearly with key details.`;
+      }
+
+      // Convert ToolDefinition registry into OpenAI-compatible tools
+      const openaiTools = enabledTools.map(t => ({
+        type: 'function' as const,
+        function: {
+          name: t.name,
+          description: t.description,
+          parameters: {
+            type: 'object',
+            properties: Object.fromEntries(
+              t.parameters.map(p => [
+                p.name,
+                {
+                  type: p.type,
+                  description: p.description,
+                  ...(p.enum ? { enum: p.enum } : {}),
+                },
+              ]),
+            ),
+            required: t.parameters.filter(p => p.required).map(p => p.name),
+          },
+        },
+      }));
 
       const serializeBlockToText = (block: any): string => {
         if (!block) return '';
@@ -471,30 +509,100 @@ RULES:
 
       messages.push({ role: 'user', content: message });
 
-      const response = await fetch('https://api.deepseek.com/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${deepseekKey}`,
-        },
-        body: JSON.stringify({
-          model: 'deepseek-chat',
-          messages,
-          temperature: 0.6,
-          max_tokens: 400,
-        }),
-      });
+      let iterations = 0;
+      const maxIterations = 6;
+      const toolResults: Array<{ tool: string; result: any }> = [];
 
-      if (!response.ok) {
-        throw new Error(`DeepSeek API returned ${response.status}`);
+      while (iterations < maxIterations) {
+        iterations++;
+
+        const response = await fetch('https://api.deepseek.com/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${deepseekKey}`,
+          },
+          body: JSON.stringify({
+            model: 'deepseek-chat',
+            messages,
+            tools: openaiTools.length > 0 ? openaiTools : undefined,
+            tool_choice: openaiTools.length > 0 ? 'auto' : undefined,
+            temperature: 0.6,
+            max_tokens: 600,
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`DeepSeek API returned status ${response.status}`);
+        }
+
+        const data = await response.json();
+        const choice = data.choices?.[0];
+        if (!choice) {
+          throw new Error('No candidate response from DeepSeek API.');
+        }
+
+        const choiceMessage = choice.message;
+        messages.push(choiceMessage);
+
+        if (choiceMessage.content?.trim()) {
+          blocks.push({
+            type: 'text',
+            content: iterations === 1 
+              ? `⚠️ **[Backup Mode Active]**\n\n${choiceMessage.content}` 
+              : choiceMessage.content
+          });
+        }
+
+        const toolCalls = choiceMessage.tool_calls;
+        if (toolCalls && toolCalls.length > 0) {
+          for (const call of toolCalls) {
+            const toolName = call.function.name;
+            let toolArgs = {};
+            try {
+              toolArgs = JSON.parse(call.function.arguments);
+            } catch {}
+
+            const toolResult = await this.tools.executeTool(toolName, toolArgs, context);
+            toolResults.push({ tool: toolName, result: toolResult });
+
+            // Feed tool result back in OpenAI format
+            messages.push({
+              role: 'tool',
+              tool_call_id: call.id,
+              name: toolName,
+              content: JSON.stringify({
+                success: toolResult.success,
+                data: toolResult.data,
+                error: toolResult.error,
+              }),
+            });
+          }
+          continue;
+        }
+
+        if (toolResults.length > 0) {
+          const toolSummaryRows = toolResults.map(tr => ({
+            task: getHumanActionName(tr.tool),
+            status: tr.result.success ? '✓' : '✗',
+            detail: tr.result.log || '',
+          }));
+          blocks.push({
+            type: 'data_table',
+            title: 'Actions taken',
+            columns: [
+              { key: 'task', label: 'Task' },
+              { key: 'status', label: '' },
+              { key: 'detail', label: 'Result' },
+            ],
+            rows: toolSummaryRows,
+            editable: false,
+          });
+        }
+        break;
       }
 
-      const data = await response.json();
-      const content = data.choices?.[0]?.message?.content || 'Service is temporarily unavailable.';
-      return [{
-        type: 'text',
-        content: `⚠️ **[Backup Mode Active]**\n\n${content}`
-      }];
+      return blocks;
     } catch (err: any) {
       console.error('DeepSeek fallback error:', err);
       return [{
