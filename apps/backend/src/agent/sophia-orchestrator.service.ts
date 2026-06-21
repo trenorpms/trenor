@@ -255,6 +255,12 @@ RULES:
         }
 
         if (!response || !response.ok) {
+          if (process.env.DEEPSEEK_API_KEY) {
+            console.warn('Gemini failed. Failing over to DeepSeek backup mode...');
+            const fallbackBlocks = await this.runDeepSeekFallback(message, context, chatHistory);
+            blocks.push(...fallbackBlocks);
+            break;
+          }
           const errText = response ? await response.text() : 'Network connection failed';
           blocks.push({ type: 'error', message: `AI service error (${response?.status || 'network'})`, suggestion: errText.substring(0, 200) });
           break;
@@ -263,6 +269,12 @@ RULES:
         const data = await response.json();
         const candidate = data.candidates?.[0];
         if (!candidate) {
+          if (process.env.DEEPSEEK_API_KEY) {
+            console.warn('Gemini empty candidates. Failing over to DeepSeek backup mode...');
+            const fallbackBlocks = await this.runDeepSeekFallback(message, context, chatHistory);
+            blocks.push(...fallbackBlocks);
+            break;
+          }
           blocks.push({ type: 'error', message: 'No response from AI.', suggestion: 'Try rephrasing your request.' });
           break;
         }
@@ -347,10 +359,150 @@ RULES:
 
     } catch (err: any) {
       console.error('Sophia orchestrator error:', err);
-      blocks.push({ type: 'error', message: `Something went wrong: ${err.message}`, suggestion: 'Try again or rephrase your request.' });
+      if (process.env.DEEPSEEK_API_KEY) {
+        console.warn('Sophia loop threw error. Failing over to DeepSeek backup mode...');
+        try {
+          const fallbackBlocks = await this.runDeepSeekFallback(message, context, chatHistory);
+          blocks.push(...fallbackBlocks);
+        } catch (fbErr) {
+          blocks.push({ type: 'error', message: `Something went wrong: ${err.message}`, suggestion: 'Try again or rephrase your request.' });
+        }
+      } else {
+        blocks.push({ type: 'error', message: `Something went wrong: ${err.message}`, suggestion: 'Try again or rephrase your request.' });
+      }
     }
 
     return { blocks, conversationState: state };
+  }
+
+  // ─── DEEPSEEK FALLBACK BACKUP MODE ───
+  private async runDeepSeekFallback(
+    message: string,
+    context: AgentContext,
+    chatHistory?: any[],
+  ): Promise<AgentResponseBlock[]> {
+    const deepseekKey = process.env.DEEPSEEK_API_KEY;
+    if (!deepseekKey) {
+      return [{
+        type: 'error',
+        message: 'Primary AI service is currently unavailable.',
+        suggestion: 'No backup credentials configured. Please try again later.'
+      }];
+    }
+
+    try {
+      const isTenant = context.role === 'tenant';
+      const userType = isTenant ? `tenant ${context.tenantName || ''}` : `landlord ${context.landlordName || ''}`;
+
+      const systemPrompt = `You are Sophia, the backup AI assistant for Trenor.
+You are currently speaking with the ${userType}.
+Our primary tool-execution and document-parsing engine is temporarily offline.
+You are running in a lightweight backup mode powered by DeepSeek.
+RULES:
+- Politely inform the user that primary tools, database actions, and file uploads are temporarily offline.
+- Do not pretend that you can execute tools, retrieve databases, list invoices, or invite managers.
+- Keep your tone conversational, simple, and direct. Use human-centric language. No jargon.
+- Assist the user with general inquiries and general advice as best as you can.`;
+
+      const serializeBlockToText = (block: any): string => {
+        if (!block) return '';
+        switch (block.type) {
+          case 'text':
+            return block.content || '';
+          case 'error':
+            return `[System Message: Error: ${block.message}${block.suggestion ? ` - Suggestion: ${block.suggestion}` : ''}]`;
+          case 'data_table': {
+            let text = `[System Message: Data Table: ${block.title || 'Table'}]\n`;
+            if (block.columns && block.rows) {
+              text += `Columns: ${block.columns.map((c: any) => c.label).join(' | ')}\n`;
+              text += block.rows.map((r: any) => block.columns.map((c: any) => `${c.label}: ${r[c.key] !== undefined ? r[c.key] : ''}`).join(', ')).join('\n');
+            }
+            return text;
+          }
+          case 'confirmation': {
+            let text = `[System Message: Confirmation Details for "${block.title || 'Action'}"]\n`;
+            if (block.summary) {
+              text += Object.entries(block.summary).map(([k, v]) => `- ${k}: ${v}`).join('\n');
+            }
+            return text;
+          }
+          case 'form': {
+            let text = `[System Message: Form input request "${block.submitLabel || 'Submit'}"]\n`;
+            if (block.fields) {
+              text += block.fields.map((f: any) => `- Field: ${f.label} (${f.fieldType})${f.required ? ' (Required)' : ''}`).join('\n');
+            }
+            return text;
+          }
+          case 'step_guide': {
+            let text = `[System Message: Progress Steps]\n`;
+            if (block.steps) {
+              text += block.steps.map((s: any) => `- Step: ${s.title} (Status: ${s.status})`).join('\n');
+            }
+            return text;
+          }
+          case 'file_upload':
+            return `[System Message: Requested file upload: "${block.label || 'File'}"]`;
+          case 'image_upload':
+            return `[System Message: Requested image upload: "${block.label || 'Image'}"]`;
+          default:
+            return '';
+        }
+      };
+
+      const messages: any[] = [{ role: 'system', content: systemPrompt }];
+
+      if (chatHistory && chatHistory.length > 0) {
+        for (const msg of chatHistory) {
+          let textContent = msg.content || '';
+          if (msg.blocks && msg.blocks.length > 0) {
+            const blockTexts = msg.blocks.map(serializeBlockToText).filter(Boolean);
+            if (blockTexts.length > 0) {
+              textContent = (textContent ? textContent + '\n' : '') + blockTexts.join('\n\n');
+            }
+          }
+          if (textContent) {
+            messages.push({
+              role: msg.role === 'user' ? 'user' : 'assistant',
+              content: textContent,
+            });
+          }
+        }
+      }
+
+      messages.push({ role: 'user', content: message });
+
+      const response = await fetch('https://api.deepseek.com/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${deepseekKey}`,
+        },
+        body: JSON.stringify({
+          model: 'deepseek-chat',
+          messages,
+          temperature: 0.6,
+          max_tokens: 400,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`DeepSeek API returned ${response.status}`);
+      }
+
+      const data = await response.json();
+      const content = data.choices?.[0]?.message?.content || 'Service is temporarily unavailable.';
+      return [{
+        type: 'text',
+        content: `⚠️ **[Backup Mode Active]**\n\n${content}`
+      }];
+    } catch (err: any) {
+      console.error('DeepSeek fallback error:', err);
+      return [{
+        type: 'error',
+        message: 'Primary and backup AI services are both unavailable.',
+        suggestion: 'Please try again in a few moments.'
+      }];
+    }
   }
 }
 
