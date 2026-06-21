@@ -180,21 +180,37 @@ export default function SophiaFloatingWidget() {
       });
       const data = await res.json();
       saveState(data.conversationState || {});
-      const finalMsgs: AgentMessage[] = [...newMsgs, {
-        role: 'agent',
-        blocks: data.blocks || [],
-        timestamp: new Date().toLocaleTimeString()
-      }];
-      setMessages(finalMsgs);
-      saveHistory(finalMsgs);
+      // Reconcile: use current messages state (which may already have streamed blocks)
+      // Only replace the last agent message if the REST response has more complete data
+      setMessages(prev => {
+        const current = [...prev];
+        const lastMsg = current[current.length - 1];
+        const restBlocks = data.blocks || [];
+        if (lastMsg && lastMsg.role === 'agent') {
+          // If REST has more blocks than what was streamed, use REST data as canonical
+          if (restBlocks.length > (lastMsg.blocks?.length || 0)) {
+            current[current.length - 1] = { ...lastMsg, blocks: restBlocks };
+          }
+        } else {
+          // No placeholder found — append the REST response directly
+          current.push({ role: 'agent', blocks: restBlocks, timestamp: new Date().toLocaleTimeString() });
+        }
+        if (user?.id) localStorage.setItem(`trenor_floating_chat_${user.id}`, JSON.stringify(current));
+        return current;
+      });
     } catch (e) {
-      const finalMsgs: AgentMessage[] = [...newMsgs, {
-        role: 'agent',
-        blocks: [{ type: 'error', message: 'Failed to run Sophia. Check backend link.' }],
-        timestamp: new Date().toLocaleTimeString()
-      }];
-      setMessages(finalMsgs);
-      saveHistory(finalMsgs);
+      setMessages(prev => {
+        const current = [...prev];
+        const lastMsg = current[current.length - 1];
+        const errorBlock = { type: 'error' as const, message: 'Failed to run Sophia. Check backend link.' };
+        if (lastMsg && lastMsg.role === 'agent' && (!lastMsg.blocks || lastMsg.blocks.length === 0)) {
+          current[current.length - 1] = { ...lastMsg, blocks: [errorBlock] };
+        } else if (!lastMsg || lastMsg.role !== 'agent') {
+          current.push({ role: 'agent', blocks: [errorBlock], timestamp: new Date().toLocaleTimeString() });
+        }
+        if (user?.id) localStorage.setItem(`trenor_floating_chat_${user.id}`, JSON.stringify(current));
+        return current;
+      });
     } finally {
       setLoading(false);
       setCurrentStatus('');

@@ -204,14 +204,17 @@ export default function TenantAgentWorkspace({
       setMessages(prev => {
         const next = [...prev];
         if (next.length > 0) {
-          const lastMsg = { ...next[next.length - 1] };
-          if (lastMsg.role === 'agent') {
+          const lastMsg = next[next.length - 1];
+          if (lastMsg && lastMsg.role === 'agent') {
             const isDuplicate = lastMsg.blocks?.some(
               (b: any) => b.type === data.block.type && JSON.stringify(b) === JSON.stringify(data.block)
             );
             if (!isDuplicate) {
-              lastMsg.blocks = [...(lastMsg.blocks || []), data.block];
-              next[next.length - 1] = lastMsg;
+              const updated: AgentMessage = {
+                ...lastMsg,
+                blocks: [...(lastMsg.blocks || []), data.block],
+              };
+              next[next.length - 1] = updated;
               localStorage.setItem(`trenor_tenant_chat_${user.id}`, JSON.stringify(next));
             }
           }
@@ -268,23 +271,38 @@ export default function TenantAgentWorkspace({
       if (!response.ok) throw new Error('Response error');
       const data = await response.json();
 
-      const finalMsgs: AgentMessage[] = [...updatedMsgs, {
-        role: 'agent',
-        blocks: data.blocks || [],
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      }];
-      saveMessages(finalMsgs);
+      // Reconcile: use current messages state (which may already have streamed blocks)
+      setMessages(prev => {
+        const current = [...prev];
+        const lastMsg = current[current.length - 1];
+        const restBlocks = data.blocks || [];
+        if (lastMsg && lastMsg.role === 'agent') {
+          if (restBlocks.length > (lastMsg.blocks?.length || 0)) {
+            current[current.length - 1] = { ...lastMsg, blocks: restBlocks };
+          }
+        } else {
+          current.push({ role: 'agent', blocks: restBlocks, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) });
+        }
+        if (user?.id) localStorage.setItem(`trenor_tenant_chat_${user.id}`, JSON.stringify(current));
+        return current;
+      });
 
       if (onRefreshData) {
         onRefreshData();
       }
     } catch {
-      const finalMsgs: AgentMessage[] = [...updatedMsgs, {
-        role: 'agent',
-        blocks: [{ type: 'error', message: 'Connection error. Make sure the backend is running.' }],
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      }];
-      saveMessages(finalMsgs);
+      setMessages(prev => {
+        const current = [...prev];
+        const lastMsg = current[current.length - 1];
+        const errorBlock = { type: 'error' as const, message: 'Connection error. Make sure the backend is running.' };
+        if (lastMsg && lastMsg.role === 'agent' && (!lastMsg.blocks || lastMsg.blocks.length === 0)) {
+          current[current.length - 1] = { ...lastMsg, blocks: [errorBlock] };
+        } else if (!lastMsg || lastMsg.role !== 'agent') {
+          current.push({ role: 'agent', blocks: [errorBlock], timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) });
+        }
+        if (user?.id) localStorage.setItem(`trenor_tenant_chat_${user.id}`, JSON.stringify(current));
+        return current;
+      });
     } finally {
       setLoading(false);
       setCurrentStatus('');

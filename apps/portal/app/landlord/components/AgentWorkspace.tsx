@@ -217,14 +217,13 @@ export default function AgentWorkspace({ addToast, router, user }: AgentWorkspac
           if (s.id === activeSessionId) {
             const msgs = [...s.messages];
             if (msgs.length > 0) {
-              const lastMsg = { ...msgs[msgs.length - 1] };
-              if (lastMsg.role === 'agent') {
+              const lastMsg = msgs[msgs.length - 1];
+              if (lastMsg && lastMsg.role === 'agent') {
                 const isDuplicate = lastMsg.blocks?.some(
                   (b: any) => b.type === data.block.type && JSON.stringify(b) === JSON.stringify(data.block)
                 );
                 if (!isDuplicate) {
-                  lastMsg.blocks = [...(lastMsg.blocks || []), data.block];
-                  msgs[msgs.length - 1] = lastMsg;
+                  msgs[msgs.length - 1] = { ...lastMsg, blocks: [...(lastMsg.blocks || []), data.block] };
                 }
               }
             }
@@ -460,19 +459,50 @@ export default function AgentWorkspace({ addToast, router, user }: AgentWorkspac
 
       const data = await res.json();
 
-      const newMsgs: AgentMessage[] = [...currentHistory, {
-        role: 'agent',
-        blocks: data.blocks || [],
-        timestamp: new Date().toLocaleTimeString(),
-      }];
-      updateCurrentSession(newMsgs, data.conversationState || {});
+      // Reconcile: use current session state (which may already have streamed blocks)
+      setSessions(prevSessions => {
+        const restBlocks = data.blocks || [];
+        const next = prevSessions.map(s => {
+          if (s.id === activeSessionId) {
+            const msgs = [...s.messages];
+            const lastMsg = msgs[msgs.length - 1];
+            if (lastMsg && lastMsg.role === 'agent') {
+              if (restBlocks.length > (lastMsg.blocks?.length || 0)) {
+                msgs[msgs.length - 1] = { ...lastMsg, blocks: restBlocks };
+              }
+            } else {
+              msgs.push({ role: 'agent', blocks: restBlocks, timestamp: new Date().toLocaleTimeString() });
+            }
+            return { ...s, messages: msgs, conversationState: data.conversationState || s.conversationState };
+          }
+          return s;
+        });
+        if (user?.id) {
+          localStorage.setItem(`trenor_sessions_${user.id}`, JSON.stringify(next));
+        }
+        return next;
+      });
     } catch (err: any) {
-      const newMsgs: AgentMessage[] = [...currentHistory, {
-        role: 'agent',
-        blocks: [{ type: 'error', message: 'Connection error. Make sure the backend is running.' }],
-        timestamp: new Date().toLocaleTimeString(),
-      }];
-      updateCurrentSession(newMsgs, conversationState);
+      setSessions(prevSessions => {
+        const next = prevSessions.map(s => {
+          if (s.id === activeSessionId) {
+            const msgs = [...s.messages];
+            const lastMsg = msgs[msgs.length - 1];
+            const errorBlock = { type: 'error' as const, message: 'Connection error. Make sure the backend is running.' };
+            if (lastMsg && lastMsg.role === 'agent' && (!lastMsg.blocks || lastMsg.blocks.length === 0)) {
+              msgs[msgs.length - 1] = { ...lastMsg, blocks: [errorBlock] };
+            } else if (!lastMsg || lastMsg.role !== 'agent') {
+              msgs.push({ role: 'agent', blocks: [errorBlock], timestamp: new Date().toLocaleTimeString() });
+            }
+            return { ...s, messages: msgs };
+          }
+          return s;
+        });
+        if (user?.id) {
+          localStorage.setItem(`trenor_sessions_${user.id}`, JSON.stringify(next));
+        }
+        return next;
+      });
     } finally {
       setLoading(false);
       setCurrentStatus('');
