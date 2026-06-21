@@ -114,6 +114,7 @@ export default function SophiaFloatingWidget() {
     payload.append('landlordName', user?.name || 'Operator');
     payload.append('landlordEmail', user?.email || '');
     payload.append('temperament', 'balanced');
+    payload.append('chatHistory', JSON.stringify(newMsgs));
 
     try {
       const res = await fetch(`${API}/agent/run`, {

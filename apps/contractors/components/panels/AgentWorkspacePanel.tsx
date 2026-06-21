@@ -354,6 +354,7 @@ export default function AgentWorkspacePanel({ user: propUser }: AgentWorkspacePa
     formPayload.append('landlordName', user?.name || 'Operator');
     formPayload.append('landlordEmail', user?.email || '');
     formPayload.append('temperament', settings.agentTemperament);
+    formPayload.append('chatHistory', JSON.stringify(currentHistory));
 
     try {
       const res = await fetch(`${API}/agent/run`, {
